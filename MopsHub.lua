@@ -1,5 +1,5 @@
 --=========================================================
---  MOPS HUB v9.0 | Chat + Roles + Owner + Config + Keys
+--  MOPS HUB v9.1 | Chat + Roles + Owner + Config + Keys
 --  RIGHT SHIFT или 🐶 — открыть
 --=========================================================
 local Players          = game:GetService("Players")
@@ -149,18 +149,19 @@ local function httpPut(url, body, headers)
     end
 end
 
---==================== ОБЛАКО ====================
+--==================== ОБЛАКО (jsonbin) — ОПРЕДЕЛЯЕМ ПЕРВЫМИ ====================
 local function _fetchBin()
     local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
     if not raw then return nil end
     local decoded
     pcall(function() decoded = HttpService:JSONDecode(raw) end)
     if not decoded or not decoded.record then return nil end
+    if type(decoded.record) ~= "table" then return nil end
     return decoded.record
 end
 
 local function _pushBin(record)
-    if not record then return end
+    if not record or type(record) ~= "table" then return end
     record.messages = record.messages or {}
     local body = HttpService:JSONEncode(record)
     httpPut(CHAT_URL, body, {
@@ -201,6 +202,7 @@ end
 
 local function sendHeartbeat()
     task.spawn(function()
+        task.wait(3)
         while true do
             pcall(function()
                 local record = _fetchBin()
@@ -382,9 +384,7 @@ function showOwnerPasswordPrompt(onComplete)
     box.BorderSizePixel = 0
     Instance.new("UICorner", box).CornerRadius = UDim.new(0, 14)
     local bS = Instance.new("UIStroke", box)
-    bS.Color = THEME.Gold
-    bS.Thickness = 2
-    bS.Transparency = 0.2
+    bS.Color = THEME.Gold bS.Thickness = 2 bS.Transparency = 0.2
 
     local title = Instance.new("TextLabel", box)
     title.Size = UDim2.new(1, -40, 0, 34)
@@ -514,9 +514,7 @@ local function showRoleSelection(onDone)
     box.BorderSizePixel = 0
     Instance.new("UICorner", box).CornerRadius = UDim.new(0, 14)
     local bS = Instance.new("UIStroke", box)
-    bS.Color = THEME.Accent
-    bS.Thickness = 1.5
-    bS.Transparency = 0.3
+    bS.Color = THEME.Accent bS.Thickness = 1.5 bS.Transparency = 0.3
 
     local title = Instance.new("TextLabel", box)
     title.Size = UDim2.new(1, -40, 0, 36)
@@ -549,9 +547,7 @@ local function showRoleSelection(onDone)
         btn.AutoButtonColor = false
         Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
         local bs = Instance.new("UIStroke", btn)
-        bs.Color = color
-        bs.Thickness = 1.5
-        bs.Transparency = 0.5
+        bs.Color = color bs.Thickness = 1.5 bs.Transparency = 0.5
 
         local ic = Instance.new("TextLabel", btn)
         ic.Size = UDim2.new(0, 50, 1, 0)
@@ -640,6 +636,7 @@ end
 local maintenanceBanner = nil
 local function createMaintenanceBanner()
     if maintenanceBanner then return end
+    if not screenGui then return end
     local banner = Instance.new("Frame")
     banner.Size = UDim2.new(1, 0, 1, 0)
     banner.BackgroundColor3 = Color3.fromRGB(10, 0, 0)
@@ -1186,27 +1183,12 @@ end
 local chatMessages = {}
 local chatScroll, chatInput, chatSendBtn
 
-local function sendChatMessage(text)
-    if STATE.Maintenance then return end
-    if text == "" or #text > 200 then return end
-    local clean = text:gsub("|", "/"):gsub("\n", " ")
-    local entry = string.format("%s|%s|%s|%d", LocalPlayer.Name, myRole, clean, os.time())
-    task.spawn(function()
-        local record = _fetchBin()
-        if not record then return end
-        record.messages = record.messages or {}
-        table.insert(record.messages, entry)
-        while #record.messages > 100 do table.remove(record.messages, 1) end
-        _pushBin(record)
-        task.wait(0.4)
-        loadChatMessages()
-        renderChatMessages()
-    end)
-end
-
 function loadChatMessages()
     local record = _fetchBin()
-    if not record or not record.messages then return end
+    if not record or type(record.messages) ~= "table" then 
+        chatMessages = {}
+        return 
+    end
     chatMessages = {}
     for _, v in ipairs(record.messages) do
         if type(v) == "string" then
@@ -1250,6 +1232,26 @@ function renderChatMessages()
     end
     task.wait()
     chatScroll.CanvasPosition = Vector2.new(0, chatScroll.AbsoluteCanvasSize.Y)
+end
+
+local function sendChatMessage(text)
+    if STATE.Maintenance then return end
+    if text == "" or #text > 200 then return end
+    local clean = text:gsub("|", "/"):gsub("\n", " ")
+    local entry = string.format("%s|%s|%s|%d", LocalPlayer.Name, myRole, clean, os.time())
+    task.spawn(function()
+        local record = _fetchBin()
+        if not record then 
+            record = {messages = {}}
+        end
+        record.messages = record.messages or {}
+        table.insert(record.messages, entry)
+        while #record.messages > 100 do table.remove(record.messages, 1) end
+        _pushBin(record)
+        task.wait(0.4)
+        loadChatMessages()
+        renderChatMessages()
+    end)
 end
 
 function createChatUI(parent)
@@ -1402,7 +1404,7 @@ hudVer.Size = UDim2.new(0, 40, 1, 0)
 hudVer.Position = UDim2.new(0, 92, 0, 0)
 hudVer.BackgroundTransparency = 1
 hudVer.Font = Enum.Font.Gotham
-hudVer.Text = "v9.0"
+hudVer.Text = "v9.1"
 hudVer.TextColor3 = THEME.TextDim
 hudVer.TextSize = 10
 hudVer.TextXAlignment = Enum.TextXAlignment.Left
@@ -1499,7 +1501,7 @@ verLbl.Size = UDim2.new(1, -200, 0, 14)
 verLbl.Position = UDim2.new(0, 24, 0, 36)
 verLbl.BackgroundTransparency = 1
 verLbl.Font = Enum.Font.Gotham
-verLbl.Text = "v9.0 | chat + roles + owner + config"
+verLbl.Text = "v9.1 | chat + roles + owner + config"
 verLbl.TextColor3 = THEME.TextDim
 verLbl.TextSize = 9
 verLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -1781,9 +1783,64 @@ local function addDropdown(card, y, label, options, default, cb)
     end)
 end
 
---==================== РЕБИЛД ====================
+--==================== SIDEBAR (нужен для rebuild) ====================
+local sidebarButtons = {}
 local currentTab = "combat"
-local function rebuildContent()
+local addOwnerTab  -- forward declaration
+
+local function makeTab(id, icon, label)
+    local btn = Instance.new("TextButton", tabBar)
+    btn.Size = UDim2.new(1, 0, 0, 34)
+    btn.BackgroundColor3 = THEME.Sidebar
+    btn.BackgroundTransparency = 1
+    btn.Text = ""
+    btn.BorderSizePixel = 0
+    btn.AutoButtonColor = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+    local iL = Instance.new("TextLabel", btn)
+    iL.Size = UDim2.new(0, 20, 1, 0)
+    iL.Position = UDim2.new(0, 14, 0, 0)
+    iL.BackgroundTransparency = 1
+    iL.Font = Enum.Font.GothamBold
+    iL.Text = icon
+    iL.TextColor3 = THEME.TextDim
+    iL.TextSize = 13
+
+    local nL = Instance.new("TextLabel", btn)
+    nL.Size = UDim2.new(1, -44, 1, 0)
+    nL.Position = UDim2.new(0, 40, 0, 0)
+    nL.BackgroundTransparency = 1
+    nL.Font = Enum.Font.GothamMedium
+    nL.Text = label
+    nL.TextColor3 = THEME.TextDim
+    nL.TextSize = 12
+    nL.TextXAlignment = Enum.TextXAlignment.Left
+
+    sidebarButtons[id] = { button = btn, icon = iL, label = nL }
+
+    btn.MouseButton1Click:Connect(function()
+        if STATE.Maintenance then return end
+        currentTab = id
+        for tid, d in pairs(sidebarButtons) do
+            if tid == id then
+                d.button.BackgroundColor3 = THEME.AccentDim
+                d.button.BackgroundTransparency = 0.1
+                d.icon.TextColor3 = Color3.new(1,1,1)
+                d.label.TextColor3 = Color3.new(1,1,1)
+            else
+                d.button.BackgroundColor3 = THEME.Sidebar
+                d.button.BackgroundTransparency = 1
+                d.icon.TextColor3 = THEME.TextDim
+                d.label.TextColor3 = THEME.TextDim
+            end
+        end
+        rebuildContent()
+    end)
+end
+
+--==================== REBUILD ====================
+function rebuildContent()
     allCards = {}
     for _, c in ipairs(contentScroll:GetChildren()) do
         if c:IsA("Frame") and c:GetAttribute("isCard") then c:Destroy() end
@@ -2262,67 +2319,69 @@ local function rebuildContent()
             for _, ch in ipairs(playersScroll:GetChildren()) do
                 if ch:IsA("Frame") then ch:Destroy() end
             end
-            local grantedCache = getGrantedRoles()
-            for _, plr in ipairs(Players:GetPlayers()) do
-                local row = Instance.new("Frame", playersScroll)
-                row.Size = UDim2.new(1, -8, 0, 34)
-                row.BackgroundColor3 = THEME.Card
-                row.BackgroundTransparency = 0.3
-                row.BorderSizePixel = 0
-                Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+            task.spawn(function()
+                local grantedCache = getGrantedRoles() or {}
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    local row = Instance.new("Frame", playersScroll)
+                    row.Size = UDim2.new(1, -8, 0, 34)
+                    row.BackgroundColor3 = THEME.Card
+                    row.BackgroundTransparency = 0.3
+                    row.BorderSizePixel = 0
+                    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
 
-                local nL = Instance.new("TextLabel", row)
-                nL.Size = UDim2.new(0.55, 0, 1, 0)
-                nL.Position = UDim2.new(0, 10, 0, 0)
-                nL.BackgroundTransparency = 1
-                nL.Font = Enum.Font.GothamMedium
-                nL.Text = plr.Name .. (plr == LocalPlayer and " (ты)" or "")
-                nL.TextColor3 = THEME.Text
-                nL.TextSize = 11
-                nL.TextXAlignment = Enum.TextXAlignment.Left
+                    local nL = Instance.new("TextLabel", row)
+                    nL.Size = UDim2.new(0.55, 0, 1, 0)
+                    nL.Position = UDim2.new(0, 10, 0, 0)
+                    nL.BackgroundTransparency = 1
+                    nL.Font = Enum.Font.GothamMedium
+                    nL.Text = plr.Name .. (plr == LocalPlayer and " (ты)" or "")
+                    nL.TextColor3 = THEME.Text
+                    nL.TextSize = 11
+                    nL.TextXAlignment = Enum.TextXAlignment.Left
 
-                local currentRole = grantedCache[plr.Name]
-                local btn = Instance.new("TextButton", row)
-                btn.Size = UDim2.new(0.4, -10, 0, 24)
-                btn.Position = UDim2.new(0.6, 0, 0.5, -12)
-                btn.BorderSizePixel = 0
-                btn.Font = Enum.Font.GothamBold
-                btn.TextSize = 10
-                Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+                    local currentRole = grantedCache[plr.Name]
+                    local btn = Instance.new("TextButton", row)
+                    btn.Size = UDim2.new(0.4, -10, 0, 24)
+                    btn.Position = UDim2.new(0.6, 0, 0.5, -12)
+                    btn.BorderSizePixel = 0
+                    btn.Font = Enum.Font.GothamBold
+                    btn.TextSize = 10
+                    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
 
-                if currentRole == "Premium" then
-                    btn.Text = "💎 Уже Premium"
-                    btn.BackgroundColor3 = Color3.fromRGB(80, 50, 130)
-                    btn.TextColor3 = Color3.fromRGB(220, 200, 255)
-                elseif currentRole == "Mops" then
-                    btn.Text = "🐶 Уже Mops"
-                    btn.BackgroundColor3 = Color3.fromRGB(130, 50, 100)
-                    btn.TextColor3 = Color3.fromRGB(255, 200, 240)
-                elseif currentRole == "Owner" then
-                    btn.Text = "👑 Owner"
-                    btn.BackgroundColor3 = Color3.fromRGB(130, 100, 20)
-                    btn.TextColor3 = Color3.fromRGB(255, 220, 100)
-                else
-                    btn.Text = "🎁 Выдать 💎"
-                    btn.BackgroundColor3 = THEME.Success
-                    btn.TextColor3 = Color3.fromRGB(20, 20, 20)
-                    btn.MouseButton1Click:Connect(function()
-                        local ok = grantRoleCloud(plr.Name, "Premium")
-                        if ok then
-                            btn.Text = "💎 Уже Premium"
-                            btn.BackgroundColor3 = Color3.fromRGB(80, 50, 130)
-                            btn.TextColor3 = Color3.fromRGB(220, 200, 255)
-                            pcall(function()
-                                game:GetService("StarterGui"):SetCore("SendNotification", {
-                                    Title = "MOPS HUB",
-                                    Text = "💎 Premium выдан: " .. plr.Name,
-                                    Duration = 3,
-                                })
-                            end)
-                        end
-                    end)
+                    if currentRole == "Premium" then
+                        btn.Text = "💎 Уже Premium"
+                        btn.BackgroundColor3 = Color3.fromRGB(80, 50, 130)
+                        btn.TextColor3 = Color3.fromRGB(220, 200, 255)
+                    elseif currentRole == "Mops" then
+                        btn.Text = "🐶 Уже Mops"
+                        btn.BackgroundColor3 = Color3.fromRGB(130, 50, 100)
+                        btn.TextColor3 = Color3.fromRGB(255, 200, 240)
+                    elseif currentRole == "Owner" then
+                        btn.Text = "👑 Owner"
+                        btn.BackgroundColor3 = Color3.fromRGB(130, 100, 20)
+                        btn.TextColor3 = Color3.fromRGB(255, 220, 100)
+                    else
+                        btn.Text = "🎁 Выдать 💎"
+                        btn.BackgroundColor3 = THEME.Success
+                        btn.TextColor3 = Color3.fromRGB(20, 20, 20)
+                        btn.MouseButton1Click:Connect(function()
+                            local ok = grantRoleCloud(plr.Name, "Premium")
+                            if ok then
+                                btn.Text = "💎 Уже Premium"
+                                btn.BackgroundColor3 = Color3.fromRGB(80, 50, 130)
+                                btn.TextColor3 = Color3.fromRGB(220, 200, 255)
+                                pcall(function()
+                                    game:GetService("StarterGui"):SetCore("SendNotification", {
+                                        Title = "MOPS HUB",
+                                        Text = "💎 Premium выдан: " .. plr.Name,
+                                        Duration = 3,
+                                    })
+                                end)
+                            end
+                        end)
+                    end
                 end
-            end
+            end)
         end
 
         refreshPlayers()
@@ -2355,9 +2414,8 @@ local function rebuildContent()
             end
             task.spawn(function()
                 local record = _fetchBin()
-                if not record then return end
-                local users = record.activeUsers or {}
-                for name, info in pairs(users) do
+                if not record or type(record.activeUsers) ~= "table" then return end
+                for name, info in pairs(record.activeUsers) do
                     local row = Instance.new("Frame", activeScroll)
                     row.Size = UDim2.new(1, -8, 0, 30)
                     row.BackgroundColor3 = THEME.Card
@@ -2396,7 +2454,7 @@ local function rebuildContent()
         info.Position = UDim2.new(0, 14, 0, 56)
         info.BackgroundTransparency = 1
         info.Font = Enum.Font.Gotham
-        info.Text = "Mops Hub v9.0\nMonkey Evolution Client\n\nRIGHT SHIFT — открыть меню\n🐶 — кнопка слева\n\nРоли: 👤 Free | 💎 Premium | 🐶 Mops | 👑 Owner\n\n🔐 Owner: ввести пароль в Misc"
+        info.Text = "Mops Hub v9.1\nMonkey Evolution Client\n\nRIGHT SHIFT — открыть меню\n🐶 — кнопка слева\n\nРоли: 👤 Free | 💎 Premium | 🐶 Mops | 👑 Owner\n\n🔐 Owner: ввести пароль в Misc"
         info.TextColor3 = THEME.TextDim
         info.TextSize = 11
         info.TextWrapped = true
@@ -2405,59 +2463,7 @@ local function rebuildContent()
     end
 end
 
---==================== SIDEBAR ====================
-local sidebarButtons = {}
-local function makeTab(id, icon, label)
-    local btn = Instance.new("TextButton", tabBar)
-    btn.Size = UDim2.new(1, 0, 0, 34)
-    btn.BackgroundColor3 = THEME.Sidebar
-    btn.BackgroundTransparency = 1
-    btn.Text = ""
-    btn.BorderSizePixel = 0
-    btn.AutoButtonColor = false
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-
-    local iL = Instance.new("TextLabel", btn)
-    iL.Size = UDim2.new(0, 20, 1, 0)
-    iL.Position = UDim2.new(0, 14, 0, 0)
-    iL.BackgroundTransparency = 1
-    iL.Font = Enum.Font.GothamBold
-    iL.Text = icon
-    iL.TextColor3 = THEME.TextDim
-    iL.TextSize = 13
-
-    local nL = Instance.new("TextLabel", btn)
-    nL.Size = UDim2.new(1, -44, 1, 0)
-    nL.Position = UDim2.new(0, 40, 0, 0)
-    nL.BackgroundTransparency = 1
-    nL.Font = Enum.Font.GothamMedium
-    nL.Text = label
-    nL.TextColor3 = THEME.TextDim
-    nL.TextSize = 12
-    nL.TextXAlignment = Enum.TextXAlignment.Left
-
-    sidebarButtons[id] = { button = btn, icon = iL, label = nL }
-
-    btn.MouseButton1Click:Connect(function()
-        if STATE.Maintenance then return end
-        currentTab = id
-        for tid, d in pairs(sidebarButtons) do
-            if tid == id then
-                d.button.BackgroundColor3 = THEME.AccentDim
-                d.button.BackgroundTransparency = 0.1
-                d.icon.TextColor3 = Color3.new(1,1,1)
-                d.label.TextColor3 = Color3.new(1,1,1)
-            else
-                d.button.BackgroundColor3 = THEME.Sidebar
-                d.button.BackgroundTransparency = 1
-                d.icon.TextColor3 = THEME.TextDim
-                d.label.TextColor3 = THEME.TextDim
-            end
-        end
-        rebuildContent()
-    end)
-end
-
+--==================== СОЗДАНИЕ ВКЛАДОК ====================
 makeTab("main", "M", "Main")
 makeTab("combat", "C", "Combat")
 makeTab("movement", "M", "Movement")
@@ -2466,7 +2472,7 @@ makeTab("misc", "M", "Misc")
 makeTab("chat", "💬", "Chat")
 makeTab("config", "📄", "Config")
 
-function addOwnerTab()
+addOwnerTab = function()
     if not isOwner then return end
     if sidebarButtons["owner"] then return end
     makeTab("owner", "👑", "Owner")
@@ -2532,4 +2538,4 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("[Mops Hub v9.0] Загружен. RIGHT SHIFT — открыть.")
+print("[Mops Hub v9.1] Загружен. RIGHT SHIFT — открыть.")
