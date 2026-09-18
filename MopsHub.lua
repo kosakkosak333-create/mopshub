@@ -1,6 +1,8 @@
 --=========================================================
---  MOPS HUB v6.6 | Aventum-Style UI
---  Search + Красивое меню
+--  MOPS HUB v7.2 | Полная версия с чатом
+--  RIGHT SHIFT или 🐶 — открыть
+--  Pastebin тех.работы: https://pastebin.com/raw/Mj77ghwX
+--  Чат: jsonbin.io
 --=========================================================
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
@@ -12,13 +14,18 @@ local HttpService      = game:GetService("HttpService")
 local Lighting         = game:GetService("Lighting")
 local LocalPlayer      = Players.LocalPlayer
 
+--==================== ЧАТ (jsonbin.io) ====================
+local CHAT_BIN_ID  = "6aad8f9eac6210605add8f0e"
+local CHAT_API_KEY = "$2a$10$vZdDG8nnlVaB49BU4pgVXuewjJqoiwTtYyjdE5tZ6tKh.HyOFKXAK"
+local CHAT_READ_INTERVAL = 6
 local PASTEBIN_RAW = "https://pastebin.com/raw/Mj77ghwX"
 local CHECK_INTERVAL = 15
 
+--==================== ТЕМА ====================
 local THEME = {
-    Background  = Color3.fromRGB(20, 20, 28),
-    Sidebar     = Color3.fromRGB(14, 14, 20),
-    Card        = Color3.fromRGB(28, 28, 40),
+    Background  = Color3.fromRGB(22, 22, 30),
+    Sidebar     = Color3.fromRGB(16, 16, 24),
+    Card        = Color3.fromRGB(30, 30, 42),
     Accent      = Color3.fromRGB(140, 110, 255),
     AccentLight = Color3.fromRGB(170, 140, 255),
     AccentDim   = Color3.fromRGB(85, 65, 190),
@@ -26,6 +33,7 @@ local THEME = {
     TextDim     = Color3.fromRGB(150, 150, 170),
     TextFaint   = Color3.fromRGB(95, 95, 115),
     Border      = Color3.fromRGB(50, 50, 68),
+    BorderLight = Color3.fromRGB(70, 70, 95),
     Danger      = Color3.fromRGB(230, 70, 90),
     Success     = Color3.fromRGB(90, 220, 130),
 }
@@ -44,12 +52,11 @@ local CONFIG = {
     Fly = false, FlySpeed = 50,
     Bhop = false, BhopGain = 2, BhopMax = 150,
     Spin = false, SpinSpeed = 20,
-    Aura = false, ESP = false,
-    Fullbright = false, NoFog = false,
+    Aura = false, Fullbright = false, NoFog = false,
     AntiAfk = false,
 }
 local conns = {}
-local screenGui, main, openBtn, hud
+local screenGui, main, openBtn, hud, contentScroll
 local allCards = {}
 
 --==================== ТЕХ РАБОТЫ ====================
@@ -63,7 +70,7 @@ local function createMaintenanceBanner()
     banner.BorderSizePixel = 0
     banner.ZIndex = 999
     banner.Parent = screenGui
-    local lbl = Instance.new("TextLabel")
+    local lbl = Instance.new("TextLabel", banner)
     lbl.Size = UDim2.new(1, 0, 1, 0)
     lbl.BackgroundTransparency = 1
     lbl.Font = Enum.Font.GothamBlack
@@ -72,7 +79,6 @@ local function createMaintenanceBanner()
     lbl.TextSize = 120
     lbl.TextStrokeTransparency = 0
     lbl.ZIndex = 1000
-    lbl.Parent = banner
     task.spawn(function()
         while banner.Parent do
             for i = 0, 1, 0.05 do
@@ -82,7 +88,7 @@ local function createMaintenanceBanner()
             end
         end
     end)
-    local sub = Instance.new("TextLabel")
+    local sub = Instance.new("TextLabel", banner)
     sub.Size = UDim2.new(1, 0, 0, 40)
     sub.Position = UDim2.new(0, 0, 0.5, 90)
     sub.BackgroundTransparency = 1
@@ -91,7 +97,6 @@ local function createMaintenanceBanner()
     sub.TextColor3 = Color3.fromRGB(255, 180, 180)
     sub.TextSize = 20
     sub.ZIndex = 1000
-    sub.Parent = banner
     maintenanceBanner = banner
 end
 
@@ -102,14 +107,20 @@ local function removeMaintenanceBanner()
     end
 end
 
+local function stopAllFunctions()
+    for k, v in pairs(conns) do
+        if type(v) == "table" and v.Disconnect then pcall(function() v:Disconnect() end) end
+    end
+    conns = {}
+    for k in pairs(CONFIG) do
+        if type(CONFIG[k]) == "boolean" then CONFIG[k] = false end
+    end
+end
+
 local function applyMaintenance(state)
     STATE.Maintenance = state
     if state then
-        for _, k in ipairs({"ka","farm","rebirth","fling","flingAll","anti","speed","noclip","infJump","fly","bhop","spin","aura","afk"}) do
-            if conns[k] then pcall(function() conns[k]:Disconnect() end) conns[k] = nil end
-        end
-        if conns.flyBV then pcall(function() conns.flyBV:Destroy() end) conns.flyBV = nil end
-        if conns.flyBG then pcall(function() conns.flyBG:Destroy() end) conns.flyBG = nil end
+        stopAllFunctions()
         createMaintenanceBanner()
         if main then main.Visible = false end
         if openBtn then openBtn.Visible = false end
@@ -119,6 +130,18 @@ local function applyMaintenance(state)
         if openBtn then openBtn.Visible = true end
         if hud then hud.Visible = true end
     end
+end
+
+local function isBlocked()
+    if STATE.Maintenance then
+        pcall(function()
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "МОПС ХАБ", Text = "ТЕХ.РАБОТЫ — функции отключены", Duration = 2,
+            })
+        end)
+        return true
+    end
+    return false
 end
 
 task.spawn(function()
@@ -142,9 +165,8 @@ task.spawn(function()
 end)
 
 --==================== ФУНКЦИИ ====================
-local function checkBlocked() return STATE.Maintenance end
-
 local function fling(targetChar)
+    if isBlocked() then return false end
     if not targetChar then return false end
     local hrp = targetChar:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
@@ -220,10 +242,11 @@ local function findNearestBot(range)
 end
 
 local function startKillAura()
+    if isBlocked() then return end
     if conns.ka then conns.ka:Disconnect() end
     local lastHit = 0
     conns.ka = RunService.Heartbeat:Connect(function()
-        if checkBlocked() then return end
+        if STATE.Maintenance then return end
         if tick() - lastHit < CONFIG.KillDelay then return end
         local target = findNearestBot(CONFIG.KillRange)
         if not target then return end
@@ -238,9 +261,11 @@ end
 local function stopKillAura() if conns.ka then conns.ka:Disconnect() conns.ka = nil end end
 
 local function startAutoFarm()
+    if isBlocked() then return end
     if conns.farm then conns.farm:Disconnect() end
     conns.farm = RunService.Heartbeat:Connect(function()
-        if checkBlocked() or not CONFIG.AutoFarm then return end
+        if STATE.Maintenance then return end
+        if not CONFIG.AutoFarm then return end
         local char = LocalPlayer.Character
         local myRoot = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -271,10 +296,11 @@ end
 local function stopAutoFarm() if conns.farm then conns.farm:Disconnect() conns.farm = nil end end
 
 local function startAutoRebirth()
+    if isBlocked() then return end
     if conns.rebirth then pcall(function() task.cancel(conns.rebirth) end) end
     conns.rebirth = task.spawn(function()
         while CONFIG.AutoRebirth do
-            if not checkBlocked() then
+            if not STATE.Maintenance then
                 pcall(function()
                     for _, obj in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
                         if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
@@ -293,9 +319,10 @@ end
 local function stopAutoRebirth() if conns.rebirth then pcall(function() task.cancel(conns.rebirth) end) conns.rebirth = nil end end
 
 local function startFlingLoop()
+    if isBlocked() then return end
     if conns.fling then conns.fling:Disconnect() end
     conns.fling = RunService.Heartbeat:Connect(function()
-        if checkBlocked() then return end
+        if STATE.Maintenance then return end
         local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if not myRoot then return end
         for _, p in ipairs(Players:GetPlayers()) do
@@ -310,9 +337,10 @@ end
 local function stopFlingLoop() if conns.fling then conns.fling:Disconnect() conns.fling = nil end end
 
 local function startFlingAll()
+    if isBlocked() then return end
     if conns.flingAll then conns.flingAll:Disconnect() end
     conns.flingAll = RunService.Heartbeat:Connect(function()
-        if checkBlocked() then return end
+        if STATE.Maintenance then return end
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character then fling(p.Character) end
         end
@@ -322,6 +350,7 @@ end
 local function stopFlingAll() if conns.flingAll then conns.flingAll:Disconnect() conns.flingAll = nil end end
 
 local function startAntiFling()
+    if isBlocked() then return end
     if conns.anti then conns.anti:Disconnect() end
     conns.anti = RunService.Heartbeat:Connect(function()
         local char = LocalPlayer.Character
@@ -338,9 +367,9 @@ local function stopAntiFling() if conns.anti then conns.anti:Disconnect() conns.
 
 local function applySpeed(state)
     if conns.speed then conns.speed:Disconnect() conns.speed = nil end
-    if not state then return end
+    if not state or STATE.Maintenance then return end
     conns.speed = RunService.Heartbeat:Connect(function()
-        if checkBlocked() then return end
+        if STATE.Maintenance then return end
         local char = LocalPlayer.Character
         if char and char:FindFirstChildOfClass("Humanoid") then
             char.Humanoid.WalkSpeed = CONFIG.WalkSpeed
@@ -350,9 +379,9 @@ end
 
 local function applyNoclip(state)
     if conns.noclip then conns.noclip:Disconnect() conns.noclip = nil end
-    if not state then return end
+    if not state or STATE.Maintenance then return end
     conns.noclip = RunService.Stepped:Connect(function()
-        if checkBlocked() then return end
+        if STATE.Maintenance then return end
         local char = LocalPlayer.Character
         if char then
             for _, p in ipairs(char:GetDescendants()) do
@@ -364,9 +393,9 @@ end
 
 local function applyInfJump(state)
     if conns.infJump then conns.infJump:Disconnect() conns.infJump = nil end
-    if not state then return end
+    if not state or STATE.Maintenance then return end
     conns.infJump = UserInputService.JumpRequest:Connect(function()
-        if checkBlocked() then return end
+        if STATE.Maintenance then return end
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
@@ -374,6 +403,7 @@ local function applyInfJump(state)
 end
 
 local function startFly()
+    if isBlocked() then return end
     if conns.fly then conns.fly:Disconnect() end
     if conns.flyBV then conns.flyBV:Destroy() end
     if conns.flyBG then conns.flyBG:Destroy() end
@@ -393,7 +423,7 @@ local function startFly()
     conns.flyBV = bv
     conns.flyBG = bg
     conns.fly = RunService.RenderStepped:Connect(function()
-        if checkBlocked() then return end
+        if STATE.Maintenance then return end
         local cam = workspace.CurrentCamera
         local move = Vector3.zero
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
@@ -406,6 +436,7 @@ local function startFly()
         bv.Velocity = move * CONFIG.FlySpeed
         bg.CFrame = cam.CFrame
     end)
+    track(conns.fly)
 end
 local function stopFly()
     if conns.fly then conns.fly:Disconnect() conns.fly = nil end
@@ -415,10 +446,11 @@ end
 
 local bhopSpeed = 16
 local function startBhop()
+    if isBlocked() then return end
     if conns.bhop then conns.bhop:Disconnect() end
     bhopSpeed = 16
     conns.bhop = RunService.Heartbeat:Connect(function()
-        if checkBlocked() then return end
+        if STATE.Maintenance then return end
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if not hum then return end
@@ -444,9 +476,10 @@ local function stopBhop()
 end
 
 local function startSpin()
+    if isBlocked() then return end
     if conns.spin then conns.spin:Disconnect() end
     conns.spin = RunService.Heartbeat:Connect(function()
-        if checkBlocked() then return end
+        if STATE.Maintenance then return end
         local char = LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
         if not root then return end
@@ -457,18 +490,19 @@ local function stopSpin() if conns.spin then conns.spin:Disconnect() conns.spin 
 
 local auraParts = {}
 local function startAura()
+    if isBlocked() then return end
     if conns.aura then conns.aura:Disconnect() end
     conns.aura = RunService.Heartbeat:Connect(function()
-        if checkBlocked() then return end
+        if STATE.Maintenance then return end
         local char = LocalPlayer.Character
         if not char then return end
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") and not auraParts[p] then
                 local h = Instance.new("Highlight")
                 h.Adornee = p
-                h.FillColor = Color3.fromRGB(140, 110, 255)
+                h.FillColor = THEME.Accent
                 h.FillTransparency = 0.6
-                h.OutlineColor = Color3.fromRGB(140, 110, 255)
+                h.OutlineColor = THEME.Accent
                 h.Parent = p
                 auraParts[p] = h
             end
@@ -486,6 +520,7 @@ local function applyFullbright(state)
         Lighting.Brightness = 3
         Lighting.Ambient = Color3.fromRGB(180,180,180)
         Lighting.OutdoorAmbient = Color3.fromRGB(180,180,180)
+        Lighting.ClockTime = 14
     else
         Lighting.Brightness = 2
         Lighting.Ambient = Color3.fromRGB(0,0,0)
@@ -504,7 +539,7 @@ end
 
 local function applyAntiAfk(state)
     if conns.afk then conns.afk:Disconnect() conns.afk = nil end
-    if not state then return end
+    if not state or STATE.Maintenance then return end
     conns.afk = LocalPlayer.Idled:Connect(function()
         pcall(function()
             VirtualUser:CaptureController()
@@ -512,6 +547,231 @@ local function applyAntiAfk(state)
         end)
     end)
 end
+
+--==================== ЧАТ (jsonbin.io) ====================
+local myRole = "User"
+local ROLES = {
+    ["kosakkosak333"]        = "Owner",
+    ["kosakkosak333-create"] = "Owner",
+}
+local ROLE_COLORS = {
+    Owner     = Color3.fromRGB(255, 200, 40),
+    Moderator = Color3.fromRGB(230, 70, 90),
+    VIP       = Color3.fromRGB(180, 100, 255),
+    User      = Color3.fromRGB(200, 200, 220),
+}
+local function getRole(n) return ROLES[n] or "User" end
+myRole = getRole(LocalPlayer.Name)
+
+local chatMessages = {}
+local chatScroll, chatInput, chatSendBtn
+
+local function httpGet(url, headers)
+    if syn and syn.request then
+        local r = syn.request({Url = url, Method = "GET", Headers = headers})
+        return r and r.Body
+    elseif http and http.request then
+        local r = http.request({Url = url, Method = "GET", Headers = headers})
+        return r and r.Body
+    elseif request then
+        local r = request({Url = url, Method = "GET", Headers = headers})
+        return r and r.Body
+    end
+end
+
+local function httpPut(url, body, headers)
+    if syn and syn.request then
+        local r = syn.request({Url = url, Method = "PUT", Body = body, Headers = headers})
+        return r and r.Body
+    elseif http and http.request then
+        local r = http.request({Url = url, Method = "PUT", Body = body, Headers = headers})
+        return r and r.Body
+    elseif request then
+        local r = request({Url = url, Method = "PUT", Body = body, Headers = headers})
+        return r and r.Body
+    end
+end
+
+local CHAT_URL = "https://api.jsonbin.io/v3/b/" .. CHAT_BIN_ID
+
+local function sendChatMessage(text)
+    if STATE.Maintenance then return end
+    if text == "" or #text > 200 then return end
+    local clean = text:gsub("|", "/"):gsub("\n", " ")
+    local entry = string.format("%s|%s|%s|%d", LocalPlayer.Name, myRole, clean, os.time())
+    task.spawn(function()
+        local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
+        if not raw then return end
+        local decoded
+        pcall(function() decoded = HttpService:JSONDecode(raw) end)
+        if not decoded or not decoded.record then return end
+        local messages = decoded.record.messages or {}
+        table.insert(messages, entry)
+        while #messages > 100 do table.remove(messages, 1) end
+        httpPut(CHAT_URL, HttpService:JSONEncode({messages = messages}), {
+            ["Content-Type"] = "application/json",
+            ["X-Master-Key"] = CHAT_API_KEY,
+        })
+        task.wait(0.3)
+        loadChatMessages()
+        renderChatMessages()
+    end)
+end
+
+function loadChatMessages()
+    local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
+    if not raw then return end
+    local decoded
+    pcall(function() decoded = HttpService:JSONDecode(raw) end)
+    if not decoded or not decoded.record or not decoded.record.messages then return end
+    chatMessages = {}
+    for _, v in ipairs(decoded.record.messages) do
+        if type(v) == "string" then
+            local name, role, text, time = v:match("([^|]+)|([^|]+)|([^|]+)|(%d+)")
+            if name and role and text then
+                table.insert(chatMessages, {name = name, role = role, text = text, time = tonumber(time) or 0})
+            end
+        end
+    end
+    table.sort(chatMessages, function(a,b) return a.time < b.time end)
+end
+
+function renderChatMessages()
+    if not chatScroll or not chatScroll.Parent then return end
+    for _, c in ipairs(chatScroll:GetChildren()) do
+        if c:IsA("TextLabel") then c:Destroy() end
+    end
+    if #chatMessages == 0 then
+        local empty = Instance.new("TextLabel", chatScroll)
+        empty.Size = UDim2.new(1, -10, 0, 30)
+        empty.BackgroundTransparency = 1
+        empty.Font = Enum.Font.Gotham
+        empty.Text = "— пусто —"
+        empty.TextColor3 = THEME.TextFaint
+        empty.TextSize = 11
+        empty.TextXAlignment = Enum.TextXAlignment.Center
+        return
+    end
+    for _, msg in ipairs(chatMessages) do
+        local lbl = Instance.new("TextLabel", chatScroll)
+        lbl.Size = UDim2.new(1, -10, 0, 0)
+        lbl.AutomaticSize = Enum.AutomaticSize.Y
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.Gotham
+        lbl.Text = "[" .. msg.role .. "] " .. msg.name .. ": " .. msg.text
+        lbl.TextColor3 = ROLE_COLORS[msg.role] or ROLE_COLORS.User
+        lbl.TextSize = 11
+        lbl.TextWrapped = true
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+    end
+    task.wait()
+    chatScroll.CanvasPosition = Vector2.new(0, chatScroll.AbsoluteCanvasSize.Y)
+end
+
+function createChatUI(parent)
+    local hdr = Instance.new("TextLabel", parent)
+    hdr.Size = UDim2.new(1, 0, 0, 24)
+    hdr.BackgroundTransparency = 1
+    hdr.Font = Enum.Font.GothamBold
+    hdr.Text = "ГЛОБАЛЬНЫЙ ЧАТ"
+    hdr.TextColor3 = THEME.Accent
+    hdr.TextSize = 12
+    hdr.TextXAlignment = Enum.TextXAlignment.Left
+    hdr.LayoutOrder = 1
+
+    local roleHdr = Instance.new("TextLabel", parent)
+    roleHdr.Size = UDim2.new(1, 0, 0, 20)
+    roleHdr.BackgroundTransparency = 1
+    roleHdr.Font = Enum.Font.GothamBold
+    roleHdr.Text = "Ваша роль: " .. myRole
+    roleHdr.TextColor3 = ROLE_COLORS[myRole] or ROLE_COLORS.User
+    roleHdr.TextSize = 12
+    roleHdr.TextXAlignment = Enum.TextXAlignment.Left
+    roleHdr.LayoutOrder = 2
+
+    local chatFrame = Instance.new("Frame", parent)
+    chatFrame.Size = UDim2.new(1, 0, 0, 320)
+    chatFrame.BackgroundColor3 = THEME.Background
+    chatFrame.BackgroundTransparency = 0.3
+    chatFrame.BorderSizePixel = 0
+    chatFrame.LayoutOrder = 3
+    Instance.new("UICorner", chatFrame).CornerRadius = UDim.new(0, 8)
+    local cfS = Instance.new("UIStroke", chatFrame)
+    cfS.Color = THEME.Border cfS.Thickness = 1 cfS.Transparency = 0.4
+
+    chatScroll = Instance.new("ScrollingFrame", chatFrame)
+    chatScroll.Size = UDim2.new(1, -8, 1, -8)
+    chatScroll.Position = UDim2.new(0, 4, 0, 4)
+    chatScroll.BackgroundTransparency = 1
+    chatScroll.BorderSizePixel = 0
+    chatScroll.ScrollBarThickness = 3
+    chatScroll.ScrollBarImageColor3 = THEME.Accent
+    chatScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+    local cLayout = Instance.new("UIListLayout", chatScroll)
+    cLayout.Padding = UDim.new(0, 6)
+    cLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    cLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        chatScroll.CanvasSize = UDim2.new(0, 0, 0, cLayout.AbsoluteContentSize.Y + 10)
+    end)
+
+    chatInput = Instance.new("TextBox", parent)
+    chatInput.Size = UDim2.new(1, -100, 0, 38)
+    chatInput.BackgroundColor3 = THEME.Background
+    chatInput.BackgroundTransparency = 0.4
+    chatInput.Font = Enum.Font.Gotham
+    chatInput.PlaceholderText = "Сообщение... (Enter)"
+    chatInput.PlaceholderColor3 = THEME.TextDim
+    chatInput.Text = ""
+    chatInput.TextColor3 = THEME.Text
+    chatInput.TextSize = 12
+    chatInput.TextXAlignment = Enum.TextXAlignment.Left
+    chatInput.ClearTextOnFocus = false
+    chatInput.LayoutOrder = 4
+    Instance.new("UICorner", chatInput).CornerRadius = UDim.new(0, 8)
+    local ciP = Instance.new("UIPadding", chatInput) ciP.PaddingLeft = UDim.new(0, 10)
+
+    chatSendBtn = Instance.new("TextButton", parent)
+    chatSendBtn.Size = UDim2.new(0, 90, 0, 38)
+    chatSendBtn.BackgroundColor3 = THEME.AccentDim
+    chatSendBtn.Text = "SEND"
+    chatSendBtn.Font = Enum.Font.GothamBold
+    chatSendBtn.TextSize = 12
+    chatSendBtn.TextColor3 = Color3.new(1,1,1)
+    chatSendBtn.BorderSizePixel = 0
+    chatSendBtn.LayoutOrder = 5
+    Instance.new("UICorner", chatSendBtn).CornerRadius = UDim.new(0, 8)
+
+    chatSendBtn.MouseButton1Click:Connect(function()
+        if chatInput.Text ~= "" then
+            local txt = chatInput.Text
+            chatInput.Text = ""
+            sendChatMessage(txt)
+        end
+    end)
+    chatInput.FocusLost:Connect(function(enter)
+        if enter and chatInput.Text ~= "" then
+            local txt = chatInput.Text
+            chatInput.Text = ""
+            sendChatMessage(txt)
+        end
+    end)
+
+    task.spawn(function()
+        loadChatMessages()
+        renderChatMessages()
+    end)
+end
+
+task.spawn(function()
+    while true do
+        task.wait(CHAT_READ_INTERVAL)
+        if chatScroll and chatScroll.Parent then
+            loadChatMessages()
+            renderChatMessages()
+        end
+    end
+end)
 
 --==================== GUI ====================
 screenGui = Instance.new("ScreenGui")
@@ -524,7 +784,7 @@ local blur = Instance.new("BlurEffect")
 blur.Size = 0
 blur.Parent = Lighting
 
--- 🌊 HUD (ватермарка) — остаётся сверху по центру
+-- HUD
 hud = Instance.new("Frame")
 hud.AnchorPoint = Vector2.new(0.5, 0)
 hud.Position = UDim2.new(0.5, 0, 0, 12)
@@ -535,7 +795,7 @@ hud.BorderSizePixel = 0
 hud.ZIndex = 10
 hud.Parent = screenGui
 Instance.new("UICorner", hud).CornerRadius = UDim.new(0, 8)
-local hudStroke = Instance.new("UIStroke", hud) hudStroke.Color = THEME.Border hudStroke.Thickness = 1 hudStroke.Transparency = 0.3
+local hudStroke = Instance.new("UIStroke", hud) hudStroke.Color = THEME.BorderLight hudStroke.Thickness = 1 hudStroke.Transparency = 0.3
 
 local hudDot = Instance.new("Frame", hud)
 hudDot.Size = UDim2.new(0, 6, 0, 6)
@@ -559,7 +819,7 @@ hudVer.Size = UDim2.new(0, 40, 1, 0)
 hudVer.Position = UDim2.new(0, 92, 0, 0)
 hudVer.BackgroundTransparency = 1
 hudVer.Font = Enum.Font.Gotham
-hudVer.Text = "v6.6"
+hudVer.Text = "v7.2"
 hudVer.TextColor3 = THEME.TextDim
 hudVer.TextSize = 10
 hudVer.TextXAlignment = Enum.TextXAlignment.Left
@@ -594,7 +854,7 @@ track(RunService.RenderStepped:Connect(function()
     end
 end))
 
--- Плавающая кнопка
+-- Кнопка открытия
 openBtn = Instance.new("TextButton")
 openBtn.Size = UDim2.new(0, 58, 0, 58)
 openBtn.Position = UDim2.new(0, 20, 0.5, -29)
@@ -603,7 +863,7 @@ openBtn.BackgroundTransparency = 0.15
 openBtn.Text = "🐶"
 openBtn.Font = Enum.Font.GothamBold
 openBtn.TextSize = 28
-openBtn.TextColor3 = Color3.new(1, 1, 1)
+openBtn.TextColor3 = Color3.new(1,1,1)
 openBtn.BorderSizePixel = 0
 openBtn.Active = true
 openBtn.Draggable = true
@@ -625,70 +885,38 @@ main.Visible = false
 main.ClipsDescendants = true
 main.Parent = screenGui
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 14)
-local mainStroke = Instance.new("UIStroke", main) mainStroke.Color = THEME.Border mainStroke.Thickness = 1 mainStroke.Transparency = 0.3
+local mainStroke = Instance.new("UIStroke", main) mainStroke.Color = THEME.BorderLight mainStroke.Thickness = 1 mainStroke.Transparency = 0.3
 
--- Верхняя панель с лого и поиском
+-- Header
 local header = Instance.new("Frame", main)
-header.Size = UDim2.new(1, 0, 0, 60)
+header.Size = UDim2.new(1, 0, 0, 56)
 header.BackgroundColor3 = THEME.Sidebar
 header.BackgroundTransparency = 0.2
 header.BorderSizePixel = 0
 
 local logoLbl = Instance.new("TextLabel", header)
-logoLbl.Size = UDim2.new(0, 120, 0, 30)
-logoLbl.Position = UDim2.new(0, 24, 0, 8)
+logoLbl.Size = UDim2.new(1, -200, 0, 30)
+logoLbl.Position = UDim2.new(0, 24, 0, 12)
 logoLbl.BackgroundTransparency = 1
 logoLbl.Font = Enum.Font.GothamBlack
 logoLbl.Text = "MOPS HUB"
 logoLbl.TextColor3 = THEME.Text
-logoLbl.TextSize = 18
+logoLbl.TextSize = 20
 logoLbl.TextXAlignment = Enum.TextXAlignment.Left
 
 local verLbl = Instance.new("TextLabel", header)
-verLbl.Size = UDim2.new(0, 120, 0, 14)
-verLbl.Position = UDim2.new(0, 24, 0, 32)
+verLbl.Size = UDim2.new(1, -200, 0, 14)
+verLbl.Position = UDim2.new(0, 24, 0, 36)
 verLbl.BackgroundTransparency = 1
 verLbl.Font = Enum.Font.Gotham
-verLbl.Text = "v6.6 | admin panel"
+verLbl.Text = "v7.2 | chat + admin"
 verLbl.TextColor3 = THEME.TextDim
 verLbl.TextSize = 9
 verLbl.TextXAlignment = Enum.TextXAlignment.Left
 
--- Поиск
-local searchBox = Instance.new("Frame", header)
-searchBox.Size = UDim2.new(0, 320, 0, 32)
-searchBox.Position = UDim2.new(0.5, -160, 0.5, -16)
-searchBox.BackgroundColor3 = THEME.Background
-searchBox.BackgroundTransparency = 0.4
-searchBox.BorderSizePixel = 0
-Instance.new("UICorner", searchBox).CornerRadius = UDim.new(0, 8)
-
-local searchIcon = Instance.new("TextLabel", searchBox)
-searchIcon.Size = UDim2.new(0, 22, 1, 0)
-searchIcon.Position = UDim2.new(0, 8, 0, 0)
-searchIcon.BackgroundTransparency = 1
-searchIcon.Font = Enum.Font.Gotham
-searchIcon.Text = "S"
-searchIcon.TextColor3 = THEME.TextDim
-searchIcon.TextSize = 12
-
-local searchInput = Instance.new("TextBox", searchBox)
-searchInput.Size = UDim2.new(1, -35, 1, 0)
-searchInput.Position = UDim2.new(0, 30, 0, 0)
-searchInput.BackgroundTransparency = 1
-searchInput.Font = Enum.Font.Gotham
-searchInput.PlaceholderText = "Search features..."
-searchInput.PlaceholderColor3 = THEME.TextDim
-searchInput.Text = ""
-searchInput.TextColor3 = THEME.Text
-searchInput.TextSize = 12
-searchInput.TextXAlignment = Enum.TextXAlignment.Left
-searchInput.ClearTextOnFocus = false
-
--- 2 кнопки справа
 local shutdownBtn = Instance.new("TextButton", header)
 shutdownBtn.Size = UDim2.new(0, 30, 0, 30)
-shutdownBtn.Position = UDim2.new(1, -80, 0.5, -15)
+shutdownBtn.Position = UDim2.new(1, -110, 0.5, -15)
 shutdownBtn.BackgroundColor3 = THEME.Danger
 shutdownBtn.Text = "X"
 shutdownBtn.Font = Enum.Font.GothamBold
@@ -696,6 +924,12 @@ shutdownBtn.TextSize = 13
 shutdownBtn.TextColor3 = Color3.new(1,1,1)
 shutdownBtn.BorderSizePixel = 0
 Instance.new("UICorner", shutdownBtn).CornerRadius = UDim.new(1, 0)
+shutdownBtn.MouseButton1Click:Connect(function()
+    for _, conn in pairs(conns) do pcall(function() conn:Disconnect() end) end
+    for _, conn in ipairs(ALL_CONNECTIONS) do pcall(function() conn:Disconnect() end) end
+    pcall(function() screenGui:Destroy() end)
+    pcall(function() blur:Destroy() end)
+end)
 
 local closeBtn = Instance.new("TextButton", header)
 closeBtn.Size = UDim2.new(0, 30, 0, 30)
@@ -708,10 +942,10 @@ closeBtn.TextColor3 = Color3.fromRGB(30, 30, 40)
 closeBtn.BorderSizePixel = 0
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(1, 0)
 
--- Sidebar снизу вверх
+-- Sidebar
 local tabBar = Instance.new("Frame", main)
-tabBar.Size = UDim2.new(0, 180, 1, -80)
-tabBar.Position = UDim2.new(0, 14, 0, 70)
+tabBar.Size = UDim2.new(0, 180, 1, -72)
+tabBar.Position = UDim2.new(0, 14, 0, 66)
 tabBar.BackgroundColor3 = THEME.Sidebar
 tabBar.BackgroundTransparency = 0.2
 tabBar.BorderSizePixel = 0
@@ -720,58 +954,19 @@ Instance.new("UICorner", tabBar).CornerRadius = UDim.new(0, 10)
 local tabLayout = Instance.new("UIListLayout", tabBar)
 tabLayout.Padding = UDim.new(0, 4)
 tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
-tabLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
 local tabPad = Instance.new("UIPadding", tabBar)
-tabPad.PaddingBottom = UDim.new(0, 8)
+tabPad.PaddingTop = UDim.new(0, 8)
 tabPad.PaddingLeft = UDim.new(0, 8)
 tabPad.PaddingRight = UDim.new(0, 8)
 
--- Логотип MOPS внизу слева (как в Aventum)
-local botLogo = Instance.new("Frame", tabBar)
-botLogo.Size = UDim2.new(1, 0, 0, 50)
-botLogo.BackgroundColor3 = THEME.Background
-botLogo.BackgroundTransparency = 0.3
-botLogo.BorderSizePixel = 0
-botLogo.LayoutOrder = 100
-Instance.new("UICorner", botLogo).CornerRadius = UDim.new(0, 8)
-
-local botLogoIcon = Instance.new("TextLabel", botLogo)
-botLogoIcon.Size = UDim2.new(0, 24, 0, 24)
-botLogoIcon.Position = UDim2.new(0, 10, 0, 8)
-botLogoIcon.BackgroundTransparency = 1
-botLogoIcon.Font = Enum.Font.GothamBold
-botLogoIcon.Text = "🐶"
-botLogoIcon.TextSize = 18
-botLogoIcon.TextColor3 = THEME.Text
-
-local botLogoTitle = Instance.new("TextLabel", botLogo)
-botLogoTitle.Size = UDim2.new(1, -40, 0, 16)
-botLogoTitle.Position = UDim2.new(0, 38, 0, 10)
-botLogoTitle.BackgroundTransparency = 1
-botLogoTitle.Font = Enum.Font.GothamBold
-botLogoTitle.Text = "MOPS"
-botLogoTitle.TextColor3 = THEME.Text
-botLogoTitle.TextSize = 12
-botLogoTitle.TextXAlignment = Enum.TextXAlignment.Left
-
-local botLogoSub = Instance.new("TextLabel", botLogo)
-botLogoSub.Size = UDim2.new(1, -40, 0, 12)
-botLogoSub.Position = UDim2.new(0, 38, 0, 26)
-botLogoSub.BackgroundTransparency = 1
-botLogoSub.Font = Enum.Font.Gotham
-botLogoSub.Text = "Lifetime"
-botLogoSub.TextColor3 = THEME.TextDim
-botLogoSub.TextSize = 9
-botLogoSub.TextXAlignment = Enum.TextXAlignment.Left
-
 -- Content
 local content = Instance.new("Frame", main)
-content.Size = UDim2.new(1, -215, 1, -80)
-content.Position = UDim2.new(0, 200, 0, 70)
+content.Size = UDim2.new(1, -215, 1, -72)
+content.Position = UDim2.new(0, 200, 0, 66)
 content.BackgroundTransparency = 1
 content.BorderSizePixel = 0
 
-local contentScroll = Instance.new("ScrollingFrame", content)
+contentScroll = Instance.new("ScrollingFrame", content)
 contentScroll.Size = UDim2.new(1, 0, 1, 0)
 contentScroll.BackgroundTransparency = 1
 contentScroll.BorderSizePixel = 0
@@ -788,18 +983,21 @@ scrollLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 end)
 
 local function setMenuVisible(state)
+    if STATE.Maintenance then return end
     if state then
         openBtn.Visible = false
         main.Visible = true
         main.Size = UDim2.new(0, 0, 0, 0)
         main.Position = UDim2.new(0.5, 0, 0.5, 0)
         TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 880, 0, 560), Position = UDim2.new(0.5, -440, 0.5, -280)
+            Size = UDim2.new(0, 880, 0, 560),
+            Position = UDim2.new(0.5, -440, 0.5, -280)
         }):Play()
         TweenService:Create(blur, TweenInfo.new(0.3), {Size = 12}):Play()
     else
         local tw = TweenService:Create(main, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-            Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, 0, 0.5, 0)
+            Size = UDim2.new(0, 0, 0, 0),
+            Position = UDim2.new(0.5, 0, 0.5, 0)
         })
         tw:Play()
         TweenService:Create(blur, TweenInfo.new(0.25), {Size = 0}):Play()
@@ -814,15 +1012,8 @@ end
 
 openBtn.MouseButton1Click:Connect(function() setMenuVisible(true) end)
 closeBtn.MouseButton1Click:Connect(function() setMenuVisible(false) end)
-shutdownBtn.MouseButton1Click:Connect(function()
-    for _, conn in pairs(conns) do pcall(function() conn:Disconnect() end) end
-    for _, conn in ipairs(ALL_CONNECTIONS) do pcall(function() conn:Disconnect() end) end
-    pcall(function() screenGui:Destroy() end)
-    pcall(function() blur:Destroy() end)
-    print("[Mops Hub] Скрипт выключен.")
-end)
 
---==================== UI Компоненты ====================
+--==================== UI ELEMENTS ====================
 local function makeCard(title, order)
     local card = Instance.new("Frame", contentScroll)
     card.Size = UDim2.new(0, 330, 0, 210)
@@ -833,7 +1024,7 @@ local function makeCard(title, order)
     card:SetAttribute("isCard", true)
     card:SetAttribute("cardTitle", title)
     Instance.new("UICorner", card).CornerRadius = UDim.new(0, 12)
-    local cs = Instance.new("UIStroke", card) cs.Color = THEME.Border cs.Thickness = 1 cs.Transparency = 0.4
+    local cs = Instance.new("UIStroke", card) cs.Color = THEME.BorderLight cs.Thickness = 1 cs.Transparency = 0.4
 
     local h = Instance.new("TextLabel", card)
     h.Size = UDim2.new(1, -24, 0, 24)
@@ -888,6 +1079,7 @@ local function addToggle(card, y, label, default, cb)
     end
 
     row.MouseButton1Click:Connect(function()
+        if STATE.Maintenance then return end
         state = not state
         box.BackgroundColor3 = state and THEME.Accent or Color3.fromRGB(48, 48, 62)
         check.Visible = state
@@ -942,6 +1134,7 @@ local function addSlider(card, y, label, min, max, default, cb)
 
     local dragging = false
     local function update(input)
+        if STATE.Maintenance then return end
         local pos = math.clamp((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
         local value = math.floor(min + (max - min) * pos + 0.5)
         fill.Size = UDim2.new(pos, 0, 1, 0)
@@ -951,6 +1144,7 @@ local function addSlider(card, y, label, min, max, default, cb)
     end
 
     bar.InputBegan:Connect(function(input)
+        if STATE.Maintenance then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true update(input) end
     end)
     UserInputService.InputChanged:Connect(function(input)
@@ -992,6 +1186,7 @@ local function addDropdown(card, y, label, options, default, cb)
     for i, o in ipairs(options) do if o == default then idx = i break end end
 
     dropBtn.MouseButton1Click:Connect(function()
+        if STATE.Maintenance then return end
         idx = idx % #options + 1
         dropBtn.Text = options[idx]
         cb(options[idx])
@@ -1094,6 +1289,23 @@ local function rebuildContent()
         local c2 = makeCard("HUD", 2)
         addToggle(c2, 56, "Watermark", true, function(s) hud.Visible = s end)
         addToggle(c2, 90, "Show FPS", true, function(s) hudFps.Visible = s end)
+
+    elseif currentTab == "chat" then
+        createChatUI(contentScroll)
+
+    elseif currentTab == "main" then
+        local c1 = makeCard("Информация", 1)
+        local info = Instance.new("TextLabel", c1)
+        info.Size = UDim2.new(1, -28, 0, 100)
+        info.Position = UDim2.new(0, 14, 0, 56)
+        info.BackgroundTransparency = 1
+        info.Font = Enum.Font.Gotham
+        info.Text = "Mops Hub v7.2\nMonkey Evolution Client\n\nRIGHT SHIFT — открыть меню\n🐶 — кнопка слева"
+        info.TextColor3 = THEME.TextDim
+        info.TextSize = 11
+        info.TextWrapped = true
+        info.TextXAlignment = Enum.TextXAlignment.Left
+        info.TextYAlignment = Enum.TextYAlignment.Top
     end
 end
 
@@ -1107,12 +1319,11 @@ local function makeTab(id, icon, label)
     btn.Text = ""
     btn.BorderSizePixel = 0
     btn.AutoButtonColor = false
-    btn.LayoutOrder = #sidebarButtons + 1
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
 
     local iL = Instance.new("TextLabel", btn)
     iL.Size = UDim2.new(0, 20, 1, 0)
-    iL.Position = UDim2.new(0, 12, 0, 0)
+    iL.Position = UDim2.new(0, 14, 0, 0)
     iL.BackgroundTransparency = 1
     iL.Font = Enum.Font.GothamBold
     iL.Text = icon
@@ -1120,8 +1331,8 @@ local function makeTab(id, icon, label)
     iL.TextSize = 13
 
     local nL = Instance.new("TextLabel", btn)
-    nL.Size = UDim2.new(1, -40, 1, 0)
-    nL.Position = UDim2.new(0, 38, 0, 0)
+    nL.Size = UDim2.new(1, -44, 1, 0)
+    nL.Position = UDim2.new(0, 40, 0, 0)
     nL.BackgroundTransparency = 1
     nL.Font = Enum.Font.GothamMedium
     nL.Text = label
@@ -1132,6 +1343,7 @@ local function makeTab(id, icon, label)
     sidebarButtons[id] = { button = btn, icon = iL, label = nL }
 
     btn.MouseButton1Click:Connect(function()
+        if STATE.Maintenance then return end
         currentTab = id
         for tid, d in pairs(sidebarButtons) do
             if tid == id then
@@ -1150,25 +1362,18 @@ local function makeTab(id, icon, label)
     end)
 end
 
-makeTab("misc", "M", "Misc")
-makeTab("render", "R", "Render")
-makeTab("movement", "M", "Movement")
+makeTab("main", "M", "Main")
 makeTab("combat", "C", "Combat")
+makeTab("movement", "M", "Movement")
+makeTab("render", "R", "Render")
+makeTab("misc", "M", "Misc")
+makeTab("chat", "💬", "Chat")
 
 sidebarButtons["combat"].button.BackgroundColor3 = THEME.AccentDim
 sidebarButtons["combat"].button.BackgroundTransparency = 0.1
 sidebarButtons["combat"].icon.TextColor3 = Color3.new(1,1,1)
 sidebarButtons["combat"].label.TextColor3 = Color3.new(1,1,1)
 rebuildContent()
-
---==================== SEARCH ====================
-searchInput:GetPropertyChangedSignal("Text"):Connect(function()
-    local q = searchInput.Text:lower()
-    for _, card in ipairs(allCards) do
-        local title = card:GetAttribute("cardTitle") or ""
-        card.Visible = q == "" or title:lower():find(q) ~= nil
-    end
-end)
 
 --==================== RIGHT SHIFT ====================
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -1178,4 +1383,4 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("[Mops Hub v6.6] Загружен. RIGHT SHIFT — открыть.")
+print("[Mops Hub v7.2] Загружен. RIGHT SHIFT — открыть.")
