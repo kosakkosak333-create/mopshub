@@ -1,7 +1,6 @@
 --=========================================================
---  MOPS HUB v7.3 | Owner + Premium System
+--  MOPS HUB v9.0 | Chat + Roles + Owner + Config + Keys
 --  RIGHT SHIFT или 🐶 — открыть
---  Пароль Owner: Kikisk234
 --=========================================================
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
@@ -13,15 +12,35 @@ local HttpService      = game:GetService("HttpService")
 local Lighting         = game:GetService("Lighting")
 local LocalPlayer      = Players.LocalPlayer
 
---==================== ЧАТ (jsonbin.io) ====================
+--==================== КОНФИГ ====================
 local CHAT_BIN_ID  = "6aad8f9eac6210605add8f0e"
 local CHAT_API_KEY = "$2a$10$vZdDG8nnlVaB49BU4pgVXuewjJqoiwTtYyjdE5tZ6tKh.HyOFKXAK"
 local CHAT_READ_INTERVAL = 6
 local PASTEBIN_RAW = "https://pastebin.com/raw/Mj77ghwX"
 local CHECK_INTERVAL = 15
-local OWNER_PASSWORD = "Kikisk234"
-local OWNER_FLAG_FILE = "MopsHub_Owner.txt"
 local CHAT_URL = "https://api.jsonbin.io/v3/b/" .. CHAT_BIN_ID
+local OWNER_FLAG_FILE = "MopsHub_Owner.txt"
+local ROLE_FILE = "MopsHub_Role.txt"
+local CONFIG_FOLDER = "MopsHub/Configs"
+local KEY_PREFIX = "MOPS-"
+
+--==================== ШИФРОВКА ПАРОЛЯ ====================
+local _XOR_KEY = 47
+local _ENCRYPTED_PASS = "644644465C441D1C1B"
+
+local function _decodePass()
+    local out = {}
+    for i = 1, #_ENCRYPTED_PASS, 2 do
+        local hex = _ENCRYPTED_PASS:sub(i, i+1)
+        table.insert(out, string.char(tonumber(hex, 16) ~ _XOR_KEY))
+    end
+    return table.concat(out)
+end
+
+local function checkPassword(input)
+    if not input or input == "" then return false end
+    return input == _decodePass()
+end
 
 --==================== ТЕМА ====================
 local THEME = {
@@ -39,18 +58,22 @@ local THEME = {
     Danger      = Color3.fromRGB(230, 70, 90),
     Success     = Color3.fromRGB(90, 220, 130),
     Gold        = Color3.fromRGB(255, 200, 40),
+    Mops        = Color3.fromRGB(255, 100, 200),
     Premium     = Color3.fromRGB(180, 100, 255),
 }
 
 local ROLE_COLORS = {
     Owner     = Color3.fromRGB(255, 200, 40),
+    Mops      = Color3.fromRGB(255, 100, 200),
     Premium   = Color3.fromRGB(180, 100, 255),
     Moderator = Color3.fromRGB(230, 70, 90),
     VIP       = Color3.fromRGB(180, 100, 255),
+    Free      = Color3.fromRGB(180, 180, 200),
     User      = Color3.fromRGB(200, 200, 220),
 }
 local ROLE_ICONS = {
-    Owner = "👑", Premium = "💎", Moderator = "🛡", VIP = "⭐", User = "👤",
+    Owner = "👑", Mops = "🐶", Premium = "💎",
+    Moderator = "🛡", VIP = "⭐", Free = "👤", User = "👤",
 }
 
 local ALL_CONNECTIONS = {}
@@ -67,12 +90,37 @@ local CONFIG = {
     Fly = false, FlySpeed = 50,
     Bhop = false, BhopGain = 2, BhopMax = 150,
     Spin = false, SpinSpeed = 20,
-    Aura = false, Fullbright = false, NoFog = false,
+    Aura = false, ESP = false,
+    Fullbright = false, NoFog = false,
     AntiAfk = false,
 }
+local BINDS = {}
+local listeningForBind = nil
 local conns = {}
-local screenGui, main, openBtn, hud, contentScroll
+local screenGui, main, openBtn, hud, contentScroll, hudRole
 local allCards = {}
+
+--==================== РОЛЬ / OWNER ====================
+local myRole = "Free"
+local isOwner = false
+local ownerPasswordUsed = false
+local grantedRolesCache = {}
+
+local function loadSavedRole()
+    if not (isfile and readfile) then return nil end
+    if not isfile(ROLE_FILE) then return nil end
+    local ok, data = pcall(function() return readfile(ROLE_FILE) end)
+    if ok and data then
+        local clean = data:gsub("%s", "")
+        if ROLE_ICONS[clean] then return clean end
+    end
+    return nil
+end
+
+local function saveRole(role)
+    if not (writefile and isfile) then return end
+    pcall(function() writefile(ROLE_FILE, role) end)
+end
 
 --==================== HTTP ====================
 local function httpGet(url, headers)
@@ -101,117 +149,491 @@ local function httpPut(url, body, headers)
     end
 end
 
---==================== OWNER SYSTEM ====================
-local myRole = "User"
-local isOwner = false
-local ownerPasswordUsed = false
-local grantedRolesCache = {}
-
--- Загрузить сохранённую роль
-local function loadSavedRole()
-    if not (isfile and readfile) then return nil end
-    if not isfile(OWNER_FLAG_FILE) then return nil end
-    local ok, data = pcall(function() return readfile(OWNER_FLAG_FILE) end)
-    if ok and data then
-        local clean = data:gsub("%s", "")
-        if clean == "used" then return "used" end
-        if clean == "Owner" then return "Owner" end
-    end
-    return nil
+--==================== ОБЛАКО ====================
+local function _fetchBin()
+    local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
+    if not raw then return nil end
+    local decoded
+    pcall(function() decoded = HttpService:JSONDecode(raw) end)
+    if not decoded or not decoded.record then return nil end
+    return decoded.record
 end
 
-local function setLocalOwnerFlag()
-    if not (writefile and isfile) then return end
-    pcall(function() writefile(OWNER_FLAG_FILE, "used") end)
+local function _pushBin(record)
+    if not record then return end
+    record.messages = record.messages or {}
+    local body = HttpService:JSONEncode(record)
+    httpPut(CHAT_URL, body, {
+        ["Content-Type"] = "application/json",
+        ["X-Master-Key"] = CHAT_API_KEY,
+    })
 end
 
--- Проверка облачного флага
 local function checkCloudOwnerFlag()
-    local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
-    if not raw then return false end
-    local decoded
-    pcall(function() decoded = HttpService:JSONDecode(raw) end)
-    if not decoded or not decoded.record then return false end
-    return decoded.record.ownerTaken == true
+    local record = _fetchBin()
+    if not record then return false end
+    return record.ownerTaken == true
 end
 
--- Установка облачного флага
 local function setCloudOwnerFlag(ownerName)
-    local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
-    if not raw then return end
-    local decoded
-    pcall(function() decoded = HttpService:JSONDecode(raw) end)
-    if not decoded or not decoded.record then return end
-    local data = decoded.record
-    data.ownerTaken = true
-    data.ownerName = ownerName
-    data.messages = data.messages or {}
-    httpPut(CHAT_URL, HttpService:JSONEncode(data), {
-        ["Content-Type"] = "application/json",
-        ["X-Master-Key"] = CHAT_API_KEY,
-    })
+    local record = _fetchBin()
+    if not record then return end
+    record.ownerTaken = true
+    record.ownerName = ownerName
+    _pushBin(record)
 end
 
--- Выдать роль в облако
 local function grantRoleCloud(targetName, role)
-    local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
-    if not raw then return false end
-    local decoded
-    pcall(function() decoded = HttpService:JSONDecode(raw) end)
-    if not decoded or not decoded.record then return false end
-    local data = decoded.record
-    data.grantedRoles = data.grantedRoles or {}
-    data.grantedRoles[targetName] = role
-    httpPut(CHAT_URL, HttpService:JSONEncode(data), {
-        ["Content-Type"] = "application/json",
-        ["X-Master-Key"] = CHAT_API_KEY,
-    })
+    local record = _fetchBin()
+    if not record then return false end
+    record.grantedRoles = record.grantedRoles or {}
+    record.grantedRoles[targetName] = role
+    _pushBin(record)
     grantedRolesCache[targetName] = role
     return true
 end
 
--- Получить выданные роли
 local function getGrantedRoles()
-    local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
-    if not raw then return {} end
-    local decoded
-    pcall(function() decoded = HttpService:JSONDecode(raw) end)
-    if not decoded or not decoded.record then return {} end
-    return decoded.record.grantedRoles or {}
+    local record = _fetchBin()
+    if not record then return {} end
+    return record.grantedRoles or {}
 end
 
--- Heartbeat — кто играет со скриптом
 local function sendHeartbeat()
     task.spawn(function()
         while true do
             pcall(function()
-                local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
-                if raw then
-                    local decoded
-                    pcall(function() decoded = HttpService:JSONDecode(raw) end)
-                    if decoded and decoded.record then
-                        local data = decoded.record
-                        data.activeUsers = data.activeUsers or {}
-                        data.activeUsers[LocalPlayer.Name] = {
-                            role = myRole,
-                            time = os.time(),
-                        }
-                        for n, info in pairs(data.activeUsers) do
-                            if type(info) == "table" and os.time() - (info.time or 0) > 60 then
-                                data.activeUsers[n] = nil
-                            end
+                local record = _fetchBin()
+                if record then
+                    record.activeUsers = record.activeUsers or {}
+                    record.activeUsers[LocalPlayer.Name] = {
+                        role = myRole,
+                        time = os.time(),
+                    }
+                    for n, info in pairs(record.activeUsers) do
+                        if type(info) == "table" and os.time() - (info.time or 0) > 60 then
+                            record.activeUsers[n] = nil
                         end
-                        data.messages = data.messages or {}
-                        httpPut(CHAT_URL, HttpService:JSONEncode(data), {
-                            ["Content-Type"] = "application/json",
-                            ["X-Master-Key"] = CHAT_API_KEY,
-                        })
                     end
+                    _pushBin(record)
                 end
             end)
             task.wait(20)
         end
     end)
+end
+
+--==================== СИСТЕМА КОНФИГОВ ====================
+local function hasFileAPI()
+    return writefile and readfile and isfile and listfiles and delfile and makefolder
+end
+
+local function ensureFolder()
+    if not hasFileAPI() then return false end
+    pcall(function()
+        if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end
+    end)
+    return true
+end
+
+local function saveLocalConfig(name)
+    if not hasFileAPI() then return false, "Executor без файлов" end
+    ensureFolder()
+    local data = {}
+    for k, v in pairs(CONFIG) do
+        if type(v) == "boolean" or type(v) == "number" or type(v) == "string" then
+            data[k] = v
+        end
+    end
+    local path = CONFIG_FOLDER .. "/" .. name .. ".json"
+    local ok, err = pcall(function() writefile(path, HttpService:JSONEncode(data)) end)
+    return ok, ok and path or err
+end
+
+local function loadLocalConfig(name)
+    if not hasFileAPI() then return false, "Executor без файлов" end
+    local path = CONFIG_FOLDER .. "/" .. name .. ".json"
+    if not isfile(path) then return false, "Не найден" end
+    local ok, content = pcall(function() return readfile(path) end)
+    if not ok then return false, "Ошибка чтения" end
+    local decoded
+    pcall(function() decoded = HttpService:JSONDecode(content) end)
+    if type(decoded) ~= "table" then return false, "Ошибка формата" end
+    for k, v in pairs(decoded) do
+        if CONFIG[k] ~= nil then CONFIG[k] = v end
+    end
+    return true
+end
+
+local function deleteLocalConfig(name)
+    if not hasFileAPI() then return false end
+    local path = CONFIG_FOLDER .. "/" .. name .. ".json"
+    if isfile(path) then pcall(function() delfile(path) end) end
+    return true
+end
+
+local function listLocalConfigs()
+    if not hasFileAPI() then return {} end
+    ensureFolder()
+    local configs = {}
+    local ok, files = pcall(function() return listfiles(CONFIG_FOLDER) end)
+    if ok and files then
+        for _, f in ipairs(files) do
+            local name = f:match("([^/\\]+)%.json$")
+            if name then table.insert(configs, name) end
+        end
+    end
+    table.sort(configs)
+    return configs
+end
+
+--==================== BASE64 ====================
+local b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+local function base64Encode(data)
+    return ((data:gsub('.', function(x)
+        local r, b = '', x:byte()
+        for i = 8, 1, -1 do r = r .. (b % 2 ^ i - b % 2 ^ (i - 1) > 0 and '1' or '0') end
+        return r
+    end) .. '0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+        if #x < 6 then return '' end
+        local c = 0
+        for i = 1, 6 do c = c + (x:sub(i, i) == '1' and 2 ^ (6 - i) or 0) end
+        return b64chars:sub(c + 1, c + 1)
+    end) .. ({ '', '==', '=' })[#data % 3 + 1])
+end
+
+local function base64Decode(data)
+    data = string.gsub(data, '[^' .. b64chars .. '=]', '')
+    return (data:gsub('.', function(x)
+        if x == '=' then return '' end
+        local r, f = '', (b64chars:find(x) - 1)
+        for i = 6, 1, -1 do r = r .. (f % 2 ^ i - f % 2 ^ (i - 1) > 0 and '1' or '0') end
+        return r
+    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+        if #x ~= 8 then return '' end
+        local c = 0
+        for i = 1, 8 do c = c + (x:sub(i, i) == '1' and 2 ^ (8 - i) or 0) end
+        return string.char(c)
+    end))
+end
+
+local function generateKey()
+    local data = {}
+    for k, v in pairs(CONFIG) do
+        if type(v) == "boolean" or type(v) == "number" or type(v) == "string" then
+            data[k] = v
+        end
+    end
+    return KEY_PREFIX .. base64Encode(HttpService:JSONEncode(data))
+end
+
+local function activateKey(key)
+    if not key or #key < 8 then return false, "Ключ слишком короткий" end
+    key = key:gsub("%s", "")
+    if key:sub(1, #KEY_PREFIX) == KEY_PREFIX then
+        key = key:sub(#KEY_PREFIX + 1)
+    end
+    local ok, json = pcall(function() return base64Decode(key) end)
+    if not ok or not json or json == "" then return false, "Ошибка декодирования" end
+    local data
+    pcall(function() data = HttpService:JSONDecode(json) end)
+    if type(data) ~= "table" then return false, "Неверный формат ключа" end
+    local applied = 0
+    for k, v in pairs(data) do
+        if CONFIG[k] ~= nil then
+            CONFIG[k] = v
+            applied = applied + 1
+        end
+    end
+    if applied == 0 then return false, "В ключе нет известных настроек" end
+    return true, applied
+end
+
+local function copyToClipboard(text)
+    if setclipboard then
+        pcall(function() setclipboard(text) end)
+        return true
+    end
+    return false
+end
+
+--==================== ОКНО ВВОДА ПАРОЛЯ OWNER ====================
+function showOwnerPasswordPrompt(onComplete)
+    if isOwner then
+        if onComplete then onComplete(true) end
+        return
+    end
+
+    local promptGui = Instance.new("ScreenGui")
+    promptGui.Name = "MopsOwnerPrompt"
+    promptGui.ResetOnSpawn = false
+    promptGui.Parent = game:GetService("CoreGui")
+
+    local bg = Instance.new("Frame", promptGui)
+    bg.Size = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    bg.BackgroundTransparency = 0.5
+    bg.BorderSizePixel = 0
+
+    local box = Instance.new("Frame", promptGui)
+    box.Size = UDim2.new(0, 420, 0, 240)
+    box.Position = UDim2.new(0.5, -210, 0.5, -120)
+    box.BackgroundColor3 = THEME.Background
+    box.BorderSizePixel = 0
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 14)
+    local bS = Instance.new("UIStroke", box)
+    bS.Color = THEME.Gold
+    bS.Thickness = 2
+    bS.Transparency = 0.2
+
+    local title = Instance.new("TextLabel", box)
+    title.Size = UDim2.new(1, -40, 0, 34)
+    title.Position = UDim2.new(0, 20, 0, 20)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBlack
+    title.Text = "👑 ВХОД В OWNER"
+    title.TextColor3 = THEME.Gold
+    title.TextSize = 20
+    title.TextXAlignment = Enum.TextXAlignment.Center
+
+    local sub = Instance.new("TextLabel", box)
+    sub.Size = UDim2.new(1, -40, 0, 30)
+    sub.Position = UDim2.new(0, 20, 0, 54)
+    sub.BackgroundTransparency = 1
+    sub.Font = Enum.Font.Gotham
+    sub.Text = "Введи пароль владельца"
+    sub.TextColor3 = THEME.TextDim
+    sub.TextSize = 11
+    sub.TextXAlignment = Enum.TextXAlignment.Center
+
+    local passBox = Instance.new("TextBox", box)
+    passBox.Size = UDim2.new(1, -40, 0, 40)
+    passBox.Position = UDim2.new(0, 20, 0, 92)
+    passBox.BackgroundColor3 = THEME.Card
+    passBox.BorderSizePixel = 0
+    passBox.PlaceholderText = "Пароль..."
+    passBox.Text = ""
+    passBox.TextColor3 = THEME.Text
+    passBox.PlaceholderColor3 = THEME.TextDim
+    passBox.Font = Enum.Font.Gotham
+    passBox.TextSize = 14
+    Instance.new("UICorner", passBox).CornerRadius = UDim.new(0, 8)
+
+    local statusLbl = Instance.new("TextLabel", box)
+    statusLbl.Size = UDim2.new(1, -40, 0, 20)
+    statusLbl.Position = UDim2.new(0, 20, 0, 138)
+    statusLbl.BackgroundTransparency = 1
+    statusLbl.Font = Enum.Font.Gotham
+    statusLbl.Text = ""
+    statusLbl.TextColor3 = THEME.Danger
+    statusLbl.TextSize = 11
+    statusLbl.TextXAlignment = Enum.TextXAlignment.Center
+
+    local confirmBtn = Instance.new("TextButton", box)
+    confirmBtn.Size = UDim2.new(1, -40, 0, 38)
+    confirmBtn.Position = UDim2.new(0, 20, 0, 162)
+    confirmBtn.BackgroundColor3 = THEME.Gold
+    confirmBtn.BorderSizePixel = 0
+    confirmBtn.Text = "🔓 ПОДТВЕРДИТЬ"
+    confirmBtn.Font = Enum.Font.GothamBold
+    confirmBtn.TextSize = 13
+    confirmBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
+    Instance.new("UICorner", confirmBtn).CornerRadius = UDim.new(0, 8)
+
+    local cancelBtn = Instance.new("TextButton", box)
+    cancelBtn.Size = UDim2.new(0, 80, 0, 22)
+    cancelBtn.Position = UDim2.new(0.5, -40, 1, -28)
+    cancelBtn.BackgroundTransparency = 1
+    cancelBtn.Text = "Отмена"
+    cancelBtn.Font = Enum.Font.Gotham
+    cancelBtn.TextSize = 11
+    cancelBtn.TextColor3 = THEME.TextFaint
+
+    local submitted = false
+
+    local function trySubmit()
+        if submitted then return end
+        if checkPassword(passBox.Text) then
+            submitted = true
+            isOwner = true
+            ownerPasswordUsed = true
+            myRole = "Owner"
+
+            if writefile and isfile then
+                pcall(function() writefile(OWNER_FLAG_FILE, "used") end)
+            end
+            saveRole("Owner")
+
+            task.spawn(function() setCloudOwnerFlag(LocalPlayer.Name) end)
+
+            statusLbl.TextColor3 = THEME.Success
+            statusLbl.Text = "✅ Успешно!"
+            task.wait(0.6)
+            promptGui:Destroy()
+            if onComplete then onComplete(true) end
+            pcall(function()
+                game:GetService("StarterGui"):SetCore("SendNotification", {
+                    Title = "MOPS HUB", Text = "👑 Owner активирован!", Duration = 4,
+                })
+            end)
+        else
+            statusLbl.TextColor3 = THEME.Danger
+            statusLbl.Text = "❌ Неверный пароль"
+            passBox.Text = ""
+        end
+    end
+
+    confirmBtn.MouseButton1Click:Connect(trySubmit)
+    passBox.FocusLost:Connect(function(enter)
+        if enter then trySubmit() end
+    end)
+    cancelBtn.MouseButton1Click:Connect(function()
+        promptGui:Destroy()
+        if onComplete then onComplete(false) end
+    end)
+end
+
+--==================== ВЫБОР РОЛИ ПРИ СТАРТЕ ====================
+local function showRoleSelection(onDone)
+    local selGui = Instance.new("ScreenGui")
+    selGui.Name = "MopsRoleSelect"
+    selGui.ResetOnSpawn = false
+    selGui.IgnoreGuiInset = true
+    selGui.Parent = game:GetService("CoreGui")
+
+    local bg = Instance.new("Frame", selGui)
+    bg.Size = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    bg.BackgroundTransparency = 0.4
+    bg.BorderSizePixel = 0
+
+    local box = Instance.new("Frame", selGui)
+    box.Size = UDim2.new(0, 520, 0, 480)
+    box.Position = UDim2.new(0.5, -260, 0.5, -240)
+    box.BackgroundColor3 = THEME.Background
+    box.BorderSizePixel = 0
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 14)
+    local bS = Instance.new("UIStroke", box)
+    bS.Color = THEME.Accent
+    bS.Thickness = 1.5
+    bS.Transparency = 0.3
+
+    local title = Instance.new("TextLabel", box)
+    title.Size = UDim2.new(1, -40, 0, 36)
+    title.Position = UDim2.new(0, 20, 0, 20)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBlack
+    title.Text = "ВЫБЕРИ СВОЮ РОЛЬ"
+    title.TextColor3 = THEME.Text
+    title.TextSize = 22
+    title.TextXAlignment = Enum.TextXAlignment.Center
+
+    local sub = Instance.new("TextLabel", box)
+    sub.Size = UDim2.new(1, -40, 0, 24)
+    sub.Position = UDim2.new(0, 20, 0, 58)
+    sub.BackgroundTransparency = 1
+    sub.Font = Enum.Font.Gotham
+    sub.Text = "Значок отображается в чате MOPS HUB"
+    sub.TextColor3 = THEME.TextDim
+    sub.TextSize = 11
+    sub.TextXAlignment = Enum.TextXAlignment.Center
+
+    local function makeRoleBtn(y, role, desc, color, icon, needsPass)
+        local btn = Instance.new("TextButton", box)
+        btn.Size = UDim2.new(1, -40, 0, 66)
+        btn.Position = UDim2.new(0, 20, 0, y)
+        btn.BackgroundColor3 = THEME.Card
+        btn.BackgroundTransparency = 0.2
+        btn.Text = ""
+        btn.BorderSizePixel = 0
+        btn.AutoButtonColor = false
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+        local bs = Instance.new("UIStroke", btn)
+        bs.Color = color
+        bs.Thickness = 1.5
+        bs.Transparency = 0.5
+
+        local ic = Instance.new("TextLabel", btn)
+        ic.Size = UDim2.new(0, 50, 1, 0)
+        ic.Position = UDim2.new(0, 10, 0, 0)
+        ic.BackgroundTransparency = 1
+        ic.Font = Enum.Font.GothamBold
+        ic.Text = icon
+        ic.TextColor3 = color
+        ic.TextSize = 28
+
+        local nm = Instance.new("TextLabel", btn)
+        nm.Size = UDim2.new(1, -140, 0, 26)
+        nm.Position = UDim2.new(0, 70, 0, 10)
+        nm.BackgroundTransparency = 1
+        nm.Font = Enum.Font.GothamBold
+        nm.Text = role
+        nm.TextColor3 = color
+        nm.TextSize = 17
+        nm.TextXAlignment = Enum.TextXAlignment.Left
+
+        local ds = Instance.new("TextLabel", btn)
+        ds.Size = UDim2.new(1, -140, 0, 20)
+        ds.Position = UDim2.new(0, 70, 0, 36)
+        ds.BackgroundTransparency = 1
+        ds.Font = Enum.Font.Gotham
+        ds.Text = desc
+        ds.TextColor3 = THEME.TextDim
+        ds.TextSize = 11
+        ds.TextXAlignment = Enum.TextXAlignment.Left
+
+        btn.MouseEnter:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
+            TweenService:Create(bs, TweenInfo.new(0.15), {Transparency = 0}):Play()
+        end)
+        btn.MouseLeave:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0.2}):Play()
+            TweenService:Create(bs, TweenInfo.new(0.15), {Transparency = 0.5}):Play()
+        end)
+
+        btn.MouseButton1Click:Connect(function()
+            if needsPass then
+                showOwnerPasswordPrompt(function(success)
+                    if success then
+                        selGui:Destroy()
+                        if onDone then onDone("Owner") end
+                    end
+                end)
+            else
+                myRole = role
+                saveRole(role)
+                TweenService:Create(box, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+                    Size = UDim2.new(0, 0, 0, 0),
+                    Position = UDim2.new(0.5, 0, 0.5, 0)
+                }):Play()
+                task.wait(0.35)
+                selGui:Destroy()
+                if onDone then onDone(role) end
+                pcall(function()
+                    game:GetService("StarterGui"):SetCore("SendNotification", {
+                        Title = "MOPS HUB",
+                        Text = "Роль: " .. role,
+                        Duration = 3,
+                    })
+                end)
+            end
+        end)
+    end
+
+    makeRoleBtn(90,  "Free",    "Базовый доступ ко всем функциям", ROLE_COLORS.Free,    ROLE_ICONS.Free,    false)
+    makeRoleBtn(166, "Premium", "Значок 💎 в чате MOPS",          ROLE_COLORS.Premium, ROLE_ICONS.Premium, false)
+    makeRoleBtn(242, "Mops",    "Значок 🐶 в чате MOPS",          ROLE_COLORS.Mops,    ROLE_ICONS.Mops,    false)
+    makeRoleBtn(318, "Owner",   "Требуется пароль владельца",     ROLE_COLORS.Owner,   ROLE_ICONS.Owner,   true)
+
+    local warn = Instance.new("TextLabel", box)
+    warn.Size = UDim2.new(1, -40, 0, 20)
+    warn.Position = UDim2.new(0, 20, 1, -30)
+    warn.BackgroundTransparency = 1
+    warn.Font = Enum.Font.Gotham
+    warn.Text = "Роль сохраняется на устройстве"
+    warn.TextColor3 = THEME.TextFaint
+    warn.TextSize = 10
+    warn.TextXAlignment = Enum.TextXAlignment.Center
 end
 
 --==================== ТЕХ РАБОТЫ ====================
@@ -319,7 +741,7 @@ task.spawn(function()
     end
 end)
 
---==================== ФУНКЦИИ ====================
+--==================== ИГРОВЫЕ ФУНКЦИИ ====================
 local function fling(targetChar)
     if isBlocked() then return false end
     if not targetChar then return false end
@@ -670,6 +1092,43 @@ local function stopAura()
     auraParts = {}
 end
 
+local espObjects = {}
+local function createESP(p)
+    if p == LocalPlayer or espObjects[p] then return end
+    local char = p.Character
+    if not char then return end
+    local bb = Instance.new("BillboardGui")
+    bb.Adornee = char
+    bb.Size = UDim2.new(0, 200, 0, 40)
+    bb.StudsOffset = Vector3.new(0, 3, 0)
+    bb.AlwaysOnTop = true
+    bb.Parent = screenGui
+    local n = Instance.new("TextLabel")
+    n.Size = UDim2.new(1, 0, 1, 0)
+    n.BackgroundTransparency = 1
+    n.Font = Enum.Font.GothamBold
+    n.Text = p.Name
+    n.TextColor3 = Color3.fromRGB(170, 140, 255)
+    n.TextStrokeTransparency = 0
+    n.TextSize = 14
+    n.Parent = bb
+    espObjects[p] = bb
+end
+local function startESP()
+    if isBlocked() then return end
+    for _, p in ipairs(Players:GetPlayers()) do createESP(p) end
+    if conns.espAdd then conns.espAdd:Disconnect() end
+    conns.espAdd = Players.PlayerAdded:Connect(function(p)
+        p.CharacterAdded:Connect(function() task.wait(0.5) createESP(p) end)
+    end)
+    track(conns.espAdd)
+end
+local function stopESP()
+    if conns.espAdd then conns.espAdd:Disconnect() conns.espAdd = nil end
+    for _, bb in pairs(espObjects) do if bb then bb:Destroy() end end
+    espObjects = {}
+end
+
 local function applyFullbright(state)
     if state then
         Lighting.Brightness = 3
@@ -703,6 +1162,26 @@ local function applyAntiAfk(state)
     end)
 end
 
+local function applyAllFromConfig()
+    if CONFIG.KillAura then startKillAura() else stopKillAura() end
+    if CONFIG.AutoFarm then startAutoFarm() else stopAutoFarm() end
+    if CONFIG.AutoRebirth then startAutoRebirth() else stopAutoRebirth() end
+    if CONFIG.Fling then startFlingLoop() else stopFlingLoop() end
+    if CONFIG.FlingAll then startFlingAll() else stopFlingAll() end
+    if CONFIG.AntiFling then startAntiFling() else stopAntiFling() end
+    applySpeed(CONFIG.Speed)
+    applyNoclip(CONFIG.Noclip)
+    applyInfJump(CONFIG.InfiniteJump)
+    if CONFIG.Fly then startFly() else stopFly() end
+    if CONFIG.Bhop then startBhop() else stopBhop() end
+    if CONFIG.Spin then startSpin() else stopSpin() end
+    if CONFIG.Aura then startAura() else stopAura() end
+    if CONFIG.ESP then startESP() else stopESP() end
+    applyFullbright(CONFIG.Fullbright)
+    applyNoFog(CONFIG.NoFog)
+    applyAntiAfk(CONFIG.AntiAfk)
+end
+
 --==================== ЧАТ ====================
 local chatMessages = {}
 local chatScroll, chatInput, chatSendBtn
@@ -713,34 +1192,23 @@ local function sendChatMessage(text)
     local clean = text:gsub("|", "/"):gsub("\n", " ")
     local entry = string.format("%s|%s|%s|%d", LocalPlayer.Name, myRole, clean, os.time())
     task.spawn(function()
-        local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
-        if not raw then return end
-        local decoded
-        pcall(function() decoded = HttpService:JSONDecode(raw) end)
-        if not decoded or not decoded.record then return end
-        local data = decoded.record
-        local messages = data.messages or {}
-        table.insert(messages, entry)
-        while #messages > 100 do table.remove(messages, 1) end
-        data.messages = messages
-        httpPut(CHAT_URL, HttpService:JSONEncode(data), {
-            ["Content-Type"] = "application/json",
-            ["X-Master-Key"] = CHAT_API_KEY,
-        })
-        task.wait(0.3)
+        local record = _fetchBin()
+        if not record then return end
+        record.messages = record.messages or {}
+        table.insert(record.messages, entry)
+        while #record.messages > 100 do table.remove(record.messages, 1) end
+        _pushBin(record)
+        task.wait(0.4)
         loadChatMessages()
         renderChatMessages()
     end)
 end
 
 function loadChatMessages()
-    local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
-    if not raw then return end
-    local decoded
-    pcall(function() decoded = HttpService:JSONDecode(raw) end)
-    if not decoded or not decoded.record or not decoded.record.messages then return end
+    local record = _fetchBin()
+    if not record or not record.messages then return end
     chatMessages = {}
-    for _, v in ipairs(decoded.record.messages) do
+    for _, v in ipairs(record.messages) do
         if type(v) == "string" then
             local name, role, text, time = v:match("([^|]+)|([^|]+)|([^|]+)|(%d+)")
             if name and role and text then
@@ -773,7 +1241,8 @@ function renderChatMessages()
         lbl.AutomaticSize = Enum.AutomaticSize.Y
         lbl.BackgroundTransparency = 1
         lbl.Font = Enum.Font.Gotham
-        lbl.Text = "[" .. msg.role .. "] " .. msg.name .. ": " .. msg.text
+        local icon = ROLE_ICONS[msg.role] or "👤"
+        lbl.Text = icon .. " [" .. msg.role .. "] " .. msg.name .. ": " .. msg.text
         lbl.TextColor3 = ROLE_COLORS[msg.role] or ROLE_COLORS.User
         lbl.TextSize = 11
         lbl.TextWrapped = true
@@ -788,7 +1257,7 @@ function createChatUI(parent)
     hdr.Size = UDim2.new(1, 0, 0, 24)
     hdr.BackgroundTransparency = 1
     hdr.Font = Enum.Font.GothamBold
-    hdr.Text = "ГЛОБАЛЬНЫЙ ЧАТ"
+    hdr.Text = "ГЛОБАЛЬНЫЙ ЧАТ MOPS"
     hdr.TextColor3 = THEME.Accent
     hdr.TextSize = 12
     hdr.TextXAlignment = Enum.TextXAlignment.Left
@@ -798,7 +1267,7 @@ function createChatUI(parent)
     roleHdr.Size = UDim2.new(1, 0, 0, 20)
     roleHdr.BackgroundTransparency = 1
     roleHdr.Font = Enum.Font.GothamBold
-    roleHdr.Text = "Ваша роль: " .. myRole
+    roleHdr.Text = (ROLE_ICONS[myRole] or "👤") .. " Твоя роль: " .. myRole
     roleHdr.TextColor3 = ROLE_COLORS[myRole] or ROLE_COLORS.User
     roleHdr.TextSize = 12
     roleHdr.TextXAlignment = Enum.TextXAlignment.Left
@@ -933,7 +1402,7 @@ hudVer.Size = UDim2.new(0, 40, 1, 0)
 hudVer.Position = UDim2.new(0, 92, 0, 0)
 hudVer.BackgroundTransparency = 1
 hudVer.Font = Enum.Font.Gotham
-hudVer.Text = "v7.3"
+hudVer.Text = "v9.0"
 hudVer.TextColor3 = THEME.TextDim
 hudVer.TextSize = 10
 hudVer.TextXAlignment = Enum.TextXAlignment.Left
@@ -958,13 +1427,13 @@ hudPlayer.TextColor3 = THEME.Text
 hudPlayer.TextSize = 12
 hudPlayer.TextXAlignment = Enum.TextXAlignment.Left
 
-local hudRole = Instance.new("TextLabel", hud)
+hudRole = Instance.new("TextLabel", hud)
 hudRole.Size = UDim2.new(0, 100, 1, 0)
 hudRole.Position = UDim2.new(1, -110, 0, 0)
 hudRole.BackgroundTransparency = 1
 hudRole.Font = Enum.Font.GothamBold
-hudRole.Text = ROLE_ICONS[myRole] .. " " .. myRole
-hudRole.TextColor3 = ROLE_COLORS[myRole]
+hudRole.Text = (ROLE_ICONS[myRole] or "👤") .. " " .. myRole
+hudRole.TextColor3 = ROLE_COLORS[myRole] or THEME.Text
 hudRole.TextSize = 11
 hudRole.TextXAlignment = Enum.TextXAlignment.Right
 
@@ -1030,7 +1499,7 @@ verLbl.Size = UDim2.new(1, -200, 0, 14)
 verLbl.Position = UDim2.new(0, 24, 0, 36)
 verLbl.BackgroundTransparency = 1
 verLbl.Font = Enum.Font.Gotham
-verLbl.Text = "v7.3 | owner + premium + chat"
+verLbl.Text = "v9.0 | chat + roles + owner + config"
 verLbl.TextColor3 = THEME.TextDim
 verLbl.TextSize = 9
 verLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -1312,135 +1781,6 @@ local function addDropdown(card, y, label, options, default, cb)
     end)
 end
 
---==================== OWNER PASSWORD PROMPT ====================
-local function showOwnerPasswordPrompt()
-    if ownerPasswordUsed then return end
-    if isOwner then return end
-    
-    local promptGui = Instance.new("ScreenGui")
-    promptGui.Name = "MopsOwnerPrompt"
-    promptGui.ResetOnSpawn = false
-    promptGui.Parent = game:GetService("CoreGui")
-    
-    local bg = Instance.new("Frame", promptGui)
-    bg.Size = UDim2.new(1, 0, 1, 0)
-    bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    bg.BackgroundTransparency = 0.5
-    bg.BorderSizePixel = 0
-    
-    local box = Instance.new("Frame", promptGui)
-    box.Size = UDim2.new(0, 420, 0, 260)
-    box.Position = UDim2.new(0.5, -210, 0.5, -130)
-    box.BackgroundColor3 = THEME.Background
-    box.BorderSizePixel = 0
-    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 14)
-    local bS = Instance.new("UIStroke", box)
-    bS.Color = THEME.Gold
-    bS.Thickness = 2
-    bS.Transparency = 0.2
-    
-    local title = Instance.new("TextLabel", box)
-    title.Size = UDim2.new(1, -40, 0, 34)
-    title.Position = UDim2.new(0, 20, 0, 20)
-    title.BackgroundTransparency = 1
-    title.Font = Enum.Font.GothamBlack
-    title.Text = "👑 СТАТЬ OWNER"
-    title.TextColor3 = THEME.Gold
-    title.TextSize = 20
-    title.TextXAlignment = Enum.TextXAlignment.Center
-    
-    local sub = Instance.new("TextLabel", box)
-    sub.Size = UDim2.new(1, -40, 0, 40)
-    sub.Position = UDim2.new(0, 20, 0, 56)
-    sub.BackgroundTransparency = 1
-    sub.Font = Enum.Font.Gotham
-    sub.Text = "Введи пароль владельца.\n⚠️ После активации пароль исчезнет навсегда."
-    sub.TextColor3 = THEME.TextDim
-    sub.TextSize = 12
-    sub.TextWrapped = true
-    sub.TextXAlignment = Enum.TextXAlignment.Center
-    
-    local passBox = Instance.new("TextBox", box)
-    passBox.Size = UDim2.new(1, -40, 0, 40)
-    passBox.Position = UDim2.new(0, 20, 0, 110)
-    passBox.BackgroundColor3 = THEME.Card
-    passBox.BorderSizePixel = 0
-    passBox.PlaceholderText = "Пароль..."
-    passBox.Text = ""
-    passBox.TextColor3 = THEME.Text
-    passBox.PlaceholderColor3 = THEME.TextDim
-    passBox.Font = Enum.Font.Gotham
-    passBox.TextSize = 14
-    Instance.new("UICorner", passBox).CornerRadius = UDim.new(0, 8)
-    
-    local statusLbl = Instance.new("TextLabel", box)
-    statusLbl.Size = UDim2.new(1, -40, 0, 20)
-    statusLbl.Position = UDim2.new(0, 20, 0, 156)
-    statusLbl.BackgroundTransparency = 1
-    statusLbl.Font = Enum.Font.Gotham
-    statusLbl.Text = ""
-    statusLbl.TextColor3 = THEME.Danger
-    statusLbl.TextSize = 11
-    statusLbl.TextXAlignment = Enum.TextXAlignment.Center
-    
-    local confirmBtn = Instance.new("TextButton", box)
-    confirmBtn.Size = UDim2.new(1, -40, 0, 40)
-    confirmBtn.Position = UDim2.new(0, 20, 0, 180)
-    confirmBtn.BackgroundColor3 = THEME.Gold
-    confirmBtn.BorderSizePixel = 0
-    confirmBtn.Text = "🔓 АКТИВИРОВАТЬ"
-    confirmBtn.Font = Enum.Font.GothamBold
-    confirmBtn.TextSize = 14
-    confirmBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
-    Instance.new("UICorner", confirmBtn).CornerRadius = UDim.new(0, 8)
-    
-    local skipBtn = Instance.new("TextButton", box)
-    skipBtn.Size = UDim2.new(0, 100, 0, 24)
-    skipBtn.Position = UDim2.new(0.5, -50, 1, -30)
-    skipBtn.BackgroundTransparency = 1
-    skipBtn.Text = "Позже"
-    skipBtn.Font = Enum.Font.Gotham
-    skipBtn.TextSize = 11
-    skipBtn.TextColor3 = THEME.TextFaint
-    
-    confirmBtn.MouseButton1Click:Connect(function()
-        if passBox.Text == OWNER_PASSWORD then
-            isOwner = true
-            myRole = "Owner"
-            ownerPasswordUsed = true
-            setLocalOwnerFlag()
-            setCloudOwnerFlag(LocalPlayer.Name)
-            hudRole.Text = ROLE_ICONS[myRole] .. " " .. myRole
-            hudRole.TextColor3 = ROLE_COLORS[myRole]
-            
-            statusLbl.TextColor3 = THEME.Success
-            statusLbl.Text = "✅ Успешно! Ты теперь Owner."
-            
-            pcall(function()
-                game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "MOPS HUB",
-                    Text = "👑 Owner активирован!",
-                    Duration = 4,
-                })
-            end)
-            
-            task.wait(1)
-            promptGui:Destroy()
-            
-            if addOwnerTab then addOwnerTab() end
-            if currentTab == "misc" or currentTab == "main" then rebuildContent() end
-        else
-            statusLbl.TextColor3 = THEME.Danger
-            statusLbl.Text = "❌ Неверный пароль"
-            passBox.Text = ""
-        end
-    end)
-    
-    skipBtn.MouseButton1Click:Connect(function()
-        promptGui:Destroy()
-    end)
-end
-
 --==================== РЕБИЛД ====================
 local currentTab = "combat"
 local function rebuildContent()
@@ -1526,12 +1866,18 @@ local function rebuildContent()
             if s then startAura() else stopAura() end
         end)
 
-        local c2 = makeCard("Lighting", 2)
-        addToggle(c2, 56, "Fullbright", CONFIG.Fullbright, function(s) CONFIG.Fullbright = s applyFullbright(s) end)
-        addToggle(c2, 90, "No Fog", CONFIG.NoFog, function(s) CONFIG.NoFog = s applyNoFog(s) end)
+        local c2 = makeCard("ESP", 2)
+        addToggle(c2, 56, "ESP", CONFIG.ESP, function(s)
+            CONFIG.ESP = s
+            if s then startESP() else stopESP() end
+        end)
+
+        local c3 = makeCard("Lighting", 3)
+        addToggle(c3, 56, "Fullbright", CONFIG.Fullbright, function(s) CONFIG.Fullbright = s applyFullbright(s) end)
+        addToggle(c3, 90, "No Fog", CONFIG.NoFog, function(s) CONFIG.NoFog = s applyNoFog(s) end)
 
     elseif currentTab == "misc" then
-        if not isOwner and not ownerPasswordUsed then
+        if not isOwner then
             local cOwner = makeCard("👑 Owner доступ", 0)
             local btnOwner = Instance.new("TextButton", cOwner)
             btnOwner.Size = UDim2.new(1, -28, 0, 36)
@@ -1544,10 +1890,19 @@ local function rebuildContent()
             btnOwner.TextColor3 = Color3.fromRGB(20, 20, 20)
             Instance.new("UICorner", btnOwner).CornerRadius = UDim.new(0, 8)
             btnOwner.MouseButton1Click:Connect(function()
-                showOwnerPasswordPrompt()
+                showOwnerPasswordPrompt(function(success)
+                    if success then
+                        if addOwnerTab then addOwnerTab() end
+                        if hudRole then
+                            hudRole.Text = (ROLE_ICONS[myRole] or "👤") .. " " .. myRole
+                            hudRole.TextColor3 = ROLE_COLORS[myRole] or THEME.Text
+                        end
+                        rebuildContent()
+                    end
+                end)
             end)
         end
-        
+
         local c1 = makeCard("Anti-AFK", 1)
         addToggle(c1, 56, "Anti-AFK", CONFIG.AntiAfk, function(s) CONFIG.AntiAfk = s applyAntiAfk(s) end)
 
@@ -1558,13 +1913,334 @@ local function rebuildContent()
     elseif currentTab == "chat" then
         createChatUI(contentScroll)
 
+    elseif currentTab == "config" then
+        local c1 = makeCard("📄 Config Manager", 1)
+        c1.Size = UDim2.new(0, 690, 0, 500)
+
+        local nameBox = Instance.new("TextBox", c1)
+        nameBox.Size = UDim2.new(1, -28, 0, 34)
+        nameBox.Position = UDim2.new(0, 14, 0, 56)
+        nameBox.BackgroundColor3 = THEME.Background
+        nameBox.BackgroundTransparency = 0.4
+        nameBox.Font = Enum.Font.Gotham
+        nameBox.PlaceholderText = "Имя нового конфига..."
+        nameBox.PlaceholderColor3 = THEME.TextDim
+        nameBox.Text = ""
+        nameBox.TextColor3 = THEME.Text
+        nameBox.TextSize = 12
+        nameBox.TextXAlignment = Enum.TextXAlignment.Left
+        nameBox.ClearTextOnFocus = false
+        nameBox.Parent = c1
+        Instance.new("UICorner", nameBox).CornerRadius = UDim.new(0, 8)
+        local nbP = Instance.new("UIPadding", nameBox) nbP.PaddingLeft = UDim.new(0, 12) nbP.Parent = nameBox
+
+        local saveBtn = Instance.new("TextButton", c1)
+        saveBtn.Size = UDim2.new(0, 200, 0, 36)
+        saveBtn.Position = UDim2.new(0, 14, 0, 100)
+        saveBtn.BackgroundColor3 = THEME.AccentDim
+        saveBtn.BackgroundTransparency = 0.1
+        saveBtn.Text = "💾  СОХРАНИТЬ"
+        saveBtn.Font = Enum.Font.GothamBold
+        saveBtn.TextSize = 11
+        saveBtn.TextColor3 = Color3.new(1,1,1)
+        saveBtn.BorderSizePixel = 0
+        saveBtn.AutoButtonColor = false
+        saveBtn.Parent = c1
+        Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 8)
+
+        local keyBtn = Instance.new("TextButton", c1)
+        keyBtn.Size = UDim2.new(0, 200, 0, 36)
+        keyBtn.Position = UDim2.new(0, 224, 0, 100)
+        keyBtn.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
+        keyBtn.BackgroundTransparency = 0.1
+        keyBtn.Text = "🔐  СОЗДАТЬ КЛЮЧ"
+        keyBtn.Font = Enum.Font.GothamBold
+        keyBtn.TextSize = 11
+        keyBtn.TextColor3 = Color3.new(1,1,1)
+        keyBtn.BorderSizePixel = 0
+        keyBtn.AutoButtonColor = false
+        keyBtn.Parent = c1
+        Instance.new("UICorner", keyBtn).CornerRadius = UDim.new(0, 8)
+
+        local statusLbl = Instance.new("TextLabel", c1)
+        statusLbl.Size = UDim2.new(1, -28, 0, 20)
+        statusLbl.Position = UDim2.new(0, 14, 0, 144)
+        statusLbl.BackgroundTransparency = 1
+        statusLbl.Font = Enum.Font.Gotham
+        statusLbl.Text = ""
+        statusLbl.TextColor3 = THEME.AccentLight
+        statusLbl.TextSize = 11
+        statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+        statusLbl.Parent = c1
+
+        local actHdr = Instance.new("TextLabel", c1)
+        actHdr.Size = UDim2.new(1, -28, 0, 20)
+        actHdr.Position = UDim2.new(0, 14, 0, 172)
+        actHdr.BackgroundTransparency = 1
+        actHdr.Font = Enum.Font.GothamBold
+        actHdr.Text = "🔓  АКТИВАЦИЯ КЛЮЧА"
+        actHdr.TextColor3 = THEME.TextFaint
+        actHdr.TextSize = 10
+        actHdr.TextXAlignment = Enum.TextXAlignment.Left
+        actHdr.Parent = c1
+
+        local keyInput = Instance.new("TextBox", c1)
+        keyInput.Size = UDim2.new(1, -240, 0, 34)
+        keyInput.Position = UDim2.new(0, 14, 0, 196)
+        keyInput.BackgroundColor3 = THEME.Background
+        keyInput.BackgroundTransparency = 0.4
+        keyInput.Font = Enum.Font.Gotham
+        keyInput.PlaceholderText = "Вставь ключ (MOPS-...)"
+        keyInput.PlaceholderColor3 = THEME.TextDim
+        keyInput.Text = ""
+        keyInput.TextColor3 = THEME.Text
+        keyInput.TextSize = 11
+        keyInput.TextXAlignment = Enum.TextXAlignment.Left
+        keyInput.ClearTextOnFocus = false
+        keyInput.Parent = c1
+        Instance.new("UICorner", keyInput).CornerRadius = UDim.new(0, 8)
+        local kiP = Instance.new("UIPadding", keyInput) kiP.PaddingLeft = UDim.new(0, 10) kiP.Parent = keyInput
+
+        local activateBtn = Instance.new("TextButton", c1)
+        activateBtn.Size = UDim2.new(0, 200, 0, 34)
+        activateBtn.Position = UDim2.new(1, -214, 0, 196)
+        activateBtn.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
+        activateBtn.BackgroundTransparency = 0.1
+        activateBtn.Text = "📥  АКТИВИРОВАТЬ"
+        activateBtn.Font = Enum.Font.GothamBold
+        activateBtn.TextSize = 11
+        activateBtn.TextColor3 = Color3.new(1,1,1)
+        activateBtn.BorderSizePixel = 0
+        activateBtn.AutoButtonColor = false
+        activateBtn.Parent = c1
+        Instance.new("UICorner", activateBtn).CornerRadius = UDim.new(0, 8)
+
+        local savedHdr = Instance.new("TextLabel", c1)
+        savedHdr.Size = UDim2.new(1, -28, 0, 20)
+        savedHdr.Position = UDim2.new(0, 14, 0, 240)
+        savedHdr.BackgroundTransparency = 1
+        savedHdr.Font = Enum.Font.GothamBold
+        savedHdr.Text = "📁  СОХРАНЁННЫЕ КОНФИГИ"
+        savedHdr.TextColor3 = THEME.TextFaint
+        savedHdr.TextSize = 10
+        savedHdr.TextXAlignment = Enum.TextXAlignment.Left
+        savedHdr.Parent = c1
+
+        local listFrame = Instance.new("Frame", c1)
+        listFrame.Size = UDim2.new(1, -28, 1, -270)
+        listFrame.Position = UDim2.new(0, 14, 0, 264)
+        listFrame.BackgroundColor3 = THEME.Background
+        listFrame.BackgroundTransparency = 0.5
+        listFrame.BorderSizePixel = 0
+        listFrame.Parent = c1
+        Instance.new("UICorner", listFrame).CornerRadius = UDim.new(0, 8)
+
+        local listScroll = Instance.new("ScrollingFrame", listFrame)
+        listScroll.Size = UDim2.new(1, -8, 1, -8)
+        listScroll.Position = UDim2.new(0, 4, 0, 4)
+        listScroll.BackgroundTransparency = 1
+        listScroll.BorderSizePixel = 0
+        listScroll.ScrollBarThickness = 3
+        listScroll.ScrollBarImageColor3 = THEME.Accent
+        listScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+        listScroll.Parent = listFrame
+
+        local listLayout = Instance.new("UIListLayout", listScroll)
+        listLayout.Padding = UDim.new(0, 4)
+        listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        listLayout.Parent = listScroll
+        listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            listScroll.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 8)
+        end)
+
+        local function refreshList()
+            for _, c in ipairs(listScroll:GetChildren()) do
+                if c:IsA("Frame") then c:Destroy() end
+            end
+            local configs = listLocalConfigs()
+            if #configs == 0 then
+                local empty = Instance.new("TextLabel", listScroll)
+                empty.Size = UDim2.new(1, 0, 0, 40)
+                empty.BackgroundTransparency = 1
+                empty.Font = Enum.Font.Gotham
+                empty.Text = hasFileAPI() and "— нет конфигов —" or "⚠ Executor без файлов (только ключи)"
+                empty.TextColor3 = THEME.TextFaint
+                empty.TextSize = 11
+                return
+            end
+            for _, name in ipairs(configs) do
+                local row = Instance.new("Frame", listScroll)
+                row.Size = UDim2.new(1, 0, 0, 32)
+                row.BackgroundColor3 = THEME.Card
+                row.BackgroundTransparency = 0.3
+                row.BorderSizePixel = 0
+                Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+                local nameLbl = Instance.new("TextLabel", row)
+                nameLbl.Size = UDim2.new(1, -260, 1, 0)
+                nameLbl.Position = UDim2.new(0, 12, 0, 0)
+                nameLbl.BackgroundTransparency = 1
+                nameLbl.Font = Enum.Font.GothamMedium
+                nameLbl.Text = "📄  " .. name
+                nameLbl.TextColor3 = THEME.Text
+                nameLbl.TextSize = 12
+                nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+                local rLoad = Instance.new("TextButton", row)
+                rLoad.Size = UDim2.new(0, 40, 0, 24)
+                rLoad.Position = UDim2.new(1, -225, 0.5, -12)
+                rLoad.BackgroundColor3 = THEME.AccentDim
+                rLoad.Text = "📂"
+                rLoad.Font = Enum.Font.GothamBold
+                rLoad.TextSize = 12
+                rLoad.TextColor3 = Color3.new(1,1,1)
+                rLoad.BorderSizePixel = 0
+                rLoad.AutoButtonColor = false
+                Instance.new("UICorner", rLoad).CornerRadius = UDim.new(0, 6)
+
+                local rKey = Instance.new("TextButton", row)
+                rKey.Size = UDim2.new(0, 40, 0, 24)
+                rKey.Position = UDim2.new(1, -180, 0.5, -12)
+                rKey.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
+                rKey.Text = "🔐"
+                rKey.Font = Enum.Font.GothamBold
+                rKey.TextSize = 12
+                rKey.TextColor3 = Color3.new(1,1,1)
+                rKey.BorderSizePixel = 0
+                rKey.AutoButtonColor = false
+                Instance.new("UICorner", rKey).CornerRadius = UDim.new(0, 6)
+
+                local rRename = Instance.new("TextButton", row)
+                rRename.Size = UDim2.new(0, 40, 0, 24)
+                rRename.Position = UDim2.new(1, -135, 0.5, -12)
+                rRename.BackgroundColor3 = Color3.fromRGB(80, 130, 200)
+                rRename.Text = "✏"
+                rRename.Font = Enum.Font.GothamBold
+                rRename.TextSize = 12
+                rRename.TextColor3 = Color3.new(1,1,1)
+                rRename.BorderSizePixel = 0
+                rRename.AutoButtonColor = false
+                Instance.new("UICorner", rRename).CornerRadius = UDim.new(0, 6)
+
+                local rDelete = Instance.new("TextButton", row)
+                rDelete.Size = UDim2.new(0, 40, 0, 24)
+                rDelete.Position = UDim2.new(1, -90, 0.5, -12)
+                rDelete.BackgroundColor3 = THEME.Danger
+                rDelete.BackgroundTransparency = 0.3
+                rDelete.Text = "🗑"
+                rDelete.Font = Enum.Font.GothamBold
+                rDelete.TextSize = 12
+                rDelete.TextColor3 = Color3.new(1,1,1)
+                rDelete.BorderSizePixel = 0
+                rDelete.AutoButtonColor = false
+                Instance.new("UICorner", rDelete).CornerRadius = UDim.new(0, 6)
+
+                rLoad.MouseButton1Click:Connect(function()
+                    local ok, err = loadLocalConfig(name)
+                    if ok then
+                        applyAllFromConfig()
+                        statusLbl.Text = "✅ Загружен: " .. name
+                        statusLbl.TextColor3 = THEME.Success
+                        rebuildContent()
+                    else
+                        statusLbl.Text = "❌ " .. tostring(err)
+                        statusLbl.TextColor3 = THEME.Danger
+                    end
+                end)
+
+                rKey.MouseButton1Click:Connect(function()
+                    local ok, err = loadLocalConfig(name)
+                    if not ok then
+                        statusLbl.Text = "❌ " .. tostring(err)
+                        statusLbl.TextColor3 = THEME.Danger
+                        return
+                    end
+                    local key = generateKey()
+                    keyInput.Text = key
+                    local copied = copyToClipboard(key)
+                    statusLbl.Text = copied and ("✅ Ключ скопирован (" .. #key .. " симв.)") or "🔐 Ключ сгенерирован"
+                    statusLbl.TextColor3 = THEME.Success
+                end)
+
+                rRename.MouseButton1Click:Connect(function()
+                    nameBox.Text = name
+                    nameBox:CaptureFocus()
+                end)
+
+                rDelete.MouseButton1Click:Connect(function()
+                    deleteLocalConfig(name)
+                    statusLbl.Text = "🗑 Удалён: " .. name
+                    statusLbl.TextColor3 = THEME.Danger
+                    refreshList()
+                end)
+            end
+        end
+
+        saveBtn.MouseButton1Click:Connect(function()
+            local name = nameBox.Text
+            if name == "" then
+                statusLbl.Text = "❌ Введи имя конфига"
+                statusLbl.TextColor3 = THEME.Danger
+                return
+            end
+            local ok, err = saveLocalConfig(name)
+            if ok then
+                statusLbl.Text = "✅ Сохранён: " .. name
+                statusLbl.TextColor3 = THEME.Success
+                refreshList()
+            else
+                statusLbl.Text = "❌ " .. tostring(err)
+                statusLbl.TextColor3 = THEME.Danger
+            end
+        end)
+
+        keyBtn.MouseButton1Click:Connect(function()
+            local key = generateKey()
+            keyInput.Text = key
+            local copied = copyToClipboard(key)
+            statusLbl.Text = copied and ("🔐 Ключ скопирован! (" .. #key .. " симв.)") or "🔐 Ключ сгенерирован"
+            statusLbl.TextColor3 = THEME.Success
+        end)
+
+        activateBtn.MouseButton1Click:Connect(function()
+            local key = keyInput.Text
+            if key == "" then
+                statusLbl.Text = "❌ Вставь ключ"
+                statusLbl.TextColor3 = THEME.Danger
+                return
+            end
+            local ok, result = activateKey(key)
+            if ok then
+                applyAllFromConfig()
+                statusLbl.Text = "✅ Активирован! Настроек: " .. tostring(result)
+                statusLbl.TextColor3 = THEME.Success
+                rebuildContent()
+            else
+                statusLbl.Text = "❌ " .. tostring(result)
+                statusLbl.TextColor3 = THEME.Danger
+            end
+        end)
+
+        refreshList()
+
     elseif currentTab == "owner" then
-        if not isOwner then return end
-        
-        -- Карточка: Выдать Premium
+        if not isOwner then
+            local c = makeCard("Нет доступа", 1)
+            local lbl = Instance.new("TextLabel", c)
+            lbl.Size = UDim2.new(1, -28, 0, 60)
+            lbl.Position = UDim2.new(0, 14, 0, 56)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.Gotham
+            lbl.Text = "Только Owner может видеть эту вкладку"
+            lbl.TextColor3 = THEME.Danger
+            lbl.TextSize = 12
+            lbl.TextWrapped = true
+            return
+        end
+
         local c1 = makeCard("👑 Выдать Premium", 1)
         c1.Size = UDim2.new(0, 330, 0, 340)
-        
+
         local playersScroll = Instance.new("ScrollingFrame", c1)
         playersScroll.Size = UDim2.new(1, -20, 0, 260)
         playersScroll.Position = UDim2.new(0, 10, 0, 50)
@@ -1575,19 +2251,18 @@ local function rebuildContent()
         playersScroll.ScrollBarImageColor3 = THEME.Accent
         playersScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
         Instance.new("UICorner", playersScroll).CornerRadius = UDim.new(0, 6)
-        
+
         local listL = Instance.new("UIListLayout", playersScroll)
         listL.Padding = UDim.new(0, 4)
         listL:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
             playersScroll.CanvasSize = UDim2.new(0, 0, 0, listL.AbsoluteContentSize.Y + 8)
         end)
-        
-        local grantedCache = getGrantedRoles()
-        
+
         local function refreshPlayers()
             for _, ch in ipairs(playersScroll:GetChildren()) do
                 if ch:IsA("Frame") then ch:Destroy() end
             end
+            local grantedCache = getGrantedRoles()
             for _, plr in ipairs(Players:GetPlayers()) do
                 local row = Instance.new("Frame", playersScroll)
                 row.Size = UDim2.new(1, -8, 0, 34)
@@ -1595,7 +2270,7 @@ local function rebuildContent()
                 row.BackgroundTransparency = 0.3
                 row.BorderSizePixel = 0
                 Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
-                
+
                 local nL = Instance.new("TextLabel", row)
                 nL.Size = UDim2.new(0.55, 0, 1, 0)
                 nL.Position = UDim2.new(0, 10, 0, 0)
@@ -1605,7 +2280,7 @@ local function rebuildContent()
                 nL.TextColor3 = THEME.Text
                 nL.TextSize = 11
                 nL.TextXAlignment = Enum.TextXAlignment.Left
-                
+
                 local currentRole = grantedCache[plr.Name]
                 local btn = Instance.new("TextButton", row)
                 btn.Size = UDim2.new(0.4, -10, 0, 24)
@@ -1614,11 +2289,15 @@ local function rebuildContent()
                 btn.Font = Enum.Font.GothamBold
                 btn.TextSize = 10
                 Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
-                
+
                 if currentRole == "Premium" then
                     btn.Text = "💎 Уже Premium"
                     btn.BackgroundColor3 = Color3.fromRGB(80, 50, 130)
                     btn.TextColor3 = Color3.fromRGB(220, 200, 255)
+                elseif currentRole == "Mops" then
+                    btn.Text = "🐶 Уже Mops"
+                    btn.BackgroundColor3 = Color3.fromRGB(130, 50, 100)
+                    btn.TextColor3 = Color3.fromRGB(255, 200, 240)
                 elseif currentRole == "Owner" then
                     btn.Text = "👑 Owner"
                     btn.BackgroundColor3 = Color3.fromRGB(130, 100, 20)
@@ -1645,15 +2324,14 @@ local function rebuildContent()
                 end
             end
         end
-        
+
         refreshPlayers()
         Players.PlayerAdded:Connect(function() task.wait(0.5) refreshPlayers() end)
         Players.PlayerRemoving:Connect(function() task.wait(0.5) refreshPlayers() end)
-        
-        -- Карточка: Кто играет со скриптом
+
         local c2 = makeCard("👥 Играют со скриптом", 2)
         c2.Size = UDim2.new(0, 330, 0, 340)
-        
+
         local activeScroll = Instance.new("ScrollingFrame", c2)
         activeScroll.Size = UDim2.new(1, -20, 0, 260)
         activeScroll.Position = UDim2.new(0, 10, 0, 50)
@@ -1664,24 +2342,21 @@ local function rebuildContent()
         activeScroll.ScrollBarImageColor3 = THEME.Accent
         activeScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
         Instance.new("UICorner", activeScroll).CornerRadius = UDim.new(0, 6)
-        
+
         local aL = Instance.new("UIListLayout", activeScroll)
         aL.Padding = UDim.new(0, 4)
         aL:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
             activeScroll.CanvasSize = UDim2.new(0, 0, 0, aL.AbsoluteContentSize.Y + 8)
         end)
-        
+
         local function refreshActive()
             for _, ch in ipairs(activeScroll:GetChildren()) do
                 if ch:IsA("Frame") then ch:Destroy() end
             end
             task.spawn(function()
-                local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
-                if not raw then return end
-                local decoded
-                pcall(function() decoded = HttpService:JSONDecode(raw) end)
-                if not decoded or not decoded.record then return end
-                local users = decoded.record.activeUsers or {}
+                local record = _fetchBin()
+                if not record then return end
+                local users = record.activeUsers or {}
                 for name, info in pairs(users) do
                     local row = Instance.new("Frame", activeScroll)
                     row.Size = UDim2.new(1, -8, 0, 30)
@@ -1689,10 +2364,10 @@ local function rebuildContent()
                     row.BackgroundTransparency = 0.3
                     row.BorderSizePixel = 0
                     Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
-                    
+
                     local rl = type(info) == "table" and info.role or "User"
                     local icon = ROLE_ICONS[rl] or "👤"
-                    
+
                     local lbl = Instance.new("TextLabel", row)
                     lbl.Size = UDim2.new(1, -10, 1, 0)
                     lbl.Position = UDim2.new(0, 10, 0, 0)
@@ -1705,7 +2380,7 @@ local function rebuildContent()
                 end
             end)
         end
-        
+
         refreshActive()
         task.spawn(function()
             while activeScroll.Parent do
@@ -1717,11 +2392,11 @@ local function rebuildContent()
     elseif currentTab == "main" then
         local c1 = makeCard("Информация", 1)
         local info = Instance.new("TextLabel", c1)
-        info.Size = UDim2.new(1, -28, 0, 100)
+        info.Size = UDim2.new(1, -28, 0, 140)
         info.Position = UDim2.new(0, 14, 0, 56)
         info.BackgroundTransparency = 1
         info.Font = Enum.Font.Gotham
-        info.Text = "Mops Hub v7.3\nMonkey Evolution Client\n\nRIGHT SHIFT — открыть меню\n🐶 — кнопка слева\n\n👑 Owner пароль: Kikisk234"
+        info.Text = "Mops Hub v9.0\nMonkey Evolution Client\n\nRIGHT SHIFT — открыть меню\n🐶 — кнопка слева\n\nРоли: 👤 Free | 💎 Premium | 🐶 Mops | 👑 Owner\n\n🔐 Owner: ввести пароль в Misc"
         info.TextColor3 = THEME.TextDim
         info.TextSize = 11
         info.TextWrapped = true
@@ -1789,8 +2464,8 @@ makeTab("movement", "M", "Movement")
 makeTab("render", "R", "Render")
 makeTab("misc", "M", "Misc")
 makeTab("chat", "💬", "Chat")
+makeTab("config", "📄", "Config")
 
--- Функция добавления вкладки Owner
 function addOwnerTab()
     if not isOwner then return end
     if sidebarButtons["owner"] then return end
@@ -1798,41 +2473,55 @@ function addOwnerTab()
     print("[MopsHub] Вкладка Owner добавлена")
 end
 
--- Активация подсветки первой вкладки
 sidebarButtons["combat"].button.BackgroundColor3 = THEME.AccentDim
 sidebarButtons["combat"].button.BackgroundTransparency = 0.1
 sidebarButtons["combat"].icon.TextColor3 = Color3.new(1,1,1)
 sidebarButtons["combat"].label.TextColor3 = Color3.new(1,1,1)
 rebuildContent()
 
---==================== ИНИЦИАЛИЗАЦИЯ OWNER ====================
+--==================== ИНИЦИАЛИЗАЦИЯ ====================
 task.spawn(function()
-    task.wait(1)
-    
-    -- Проверяем локальный флаг
-    local saved = loadSavedRole()
-    if saved == "used" or saved == "Owner" then
+    task.wait(0.5)
+
+    local savedRole = loadSavedRole()
+    if savedRole == "Owner" then
+        isOwner = true
         ownerPasswordUsed = true
-    end
-    
-    -- Проверяем облако
-    local cloudUsed = checkCloudOwnerFlag()
-    if cloudUsed then
-        ownerPasswordUsed = true
-        setLocalOwnerFlag()
-    end
-    
-    -- Запускаем heartbeat
-    sendHeartbeat()
-    
-    -- Если пароль не использован — показываем окно через 3 сек
-    if not ownerPasswordUsed then
-        task.wait(3)
-        showOwnerPasswordPrompt()
+        myRole = "Owner"
+        addOwnerTab()
+        if hudRole then
+            hudRole.Text = ROLE_ICONS[myRole] .. " " .. myRole
+            hudRole.TextColor3 = ROLE_COLORS[myRole]
+        end
+    elseif savedRole then
+        myRole = savedRole
+        if hudRole then
+            hudRole.Text = (ROLE_ICONS[myRole] or "👤") .. " " .. myRole
+            hudRole.TextColor3 = ROLE_COLORS[myRole] or THEME.Text
+        end
     else
-        -- Если пароль уже использован кем-то другим — просто уведомление
-        print("[MopsHub] Пароль Owner уже активирован кем-то.")
+        showRoleSelection(function(chosenRole)
+            myRole = chosenRole
+            if chosenRole == "Owner" then
+                isOwner = true
+                ownerPasswordUsed = true
+                addOwnerTab()
+            end
+            if hudRole then
+                hudRole.Text = (ROLE_ICONS[myRole] or "👤") .. " " .. myRole
+                hudRole.TextColor3 = ROLE_COLORS[myRole] or THEME.Text
+            end
+        end)
     end
+
+    task.spawn(function()
+        local used = checkCloudOwnerFlag()
+        if used and not isOwner then
+            ownerPasswordUsed = true
+        end
+    end)
+
+    sendHeartbeat()
 end)
 
 --==================== RIGHT SHIFT ====================
@@ -1843,4 +2532,4 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("[Mops Hub v7.3] Загружен. RIGHT SHIFT — открыть. Пароль Owner: Kikisk234")
+print("[Mops Hub v9.0] Загружен. RIGHT SHIFT — открыть.")
