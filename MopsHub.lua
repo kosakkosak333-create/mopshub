@@ -1,5 +1,5 @@
 --=========================================================
---  MOPS HUB v6.4 | Pastebin-админка + все функции
+--  MOPS HUB v6.5 | Pastebin-админка + все функции
 --  RIGHT SHIFT или 🐶 — открыть
 --  Pastebin тех.работы: https://pastebin.com/Mj77ghwX
 --=========================================================
@@ -51,138 +51,8 @@ local CONFIG = {
     Fullbright = false, NoFog = false,
     AntiAfk = false,
 }
-local BINDS = {}
-local listeningForBind = nil
 local conns = {}
 local screenGui, main, openBtn, bindsPanel, hud
-
---==================== КОНФИГИ ====================
-local CONFIG_FOLDER = "MopsHub/Configs"
-local KEY_PREFIX = "MOPS-"
-
-local function hasFileAPI()
-    return writefile and readfile and isfile and listfiles and delfile and makefolder
-end
-
-local function ensureFolder()
-    if not hasFileAPI() then return false end
-    pcall(function()
-        if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end
-    end)
-    return true
-end
-
-local function saveLocalConfig(name)
-    if not hasFileAPI() then return false, "Executor без файлов" end
-    ensureFolder()
-    local data = {}
-    for k, v in pairs(CONFIG) do
-        if type(v) == "boolean" or type(v) == "number" or type(v) == "string" then
-            data[k] = v
-        end
-    end
-    local path = CONFIG_FOLDER .. "/" .. name .. ".json"
-    local ok, err = pcall(function() writefile(path, HttpService:JSONEncode(data)) end)
-    return ok, ok and path or err
-end
-
-local function loadLocalConfig(name)
-    if not hasFileAPI() then return false, "Executor без файлов" end
-    local path = CONFIG_FOLDER .. "/" .. name .. ".json"
-    if not isfile(path) then return false, "Не найден" end
-    local ok, content = pcall(function() return readfile(path) end)
-    if not ok then return false, "Ошибка чтения" end
-    local decoded
-    pcall(function() decoded = HttpService:JSONDecode(content) end)
-    if type(decoded) ~= "table" then return false, "Ошибка формата" end
-    for k, v in pairs(decoded) do
-        if CONFIG[k] ~= nil then CONFIG[k] = v end
-    end
-    return true
-end
-
-local function deleteLocalConfig(name)
-    if not hasFileAPI() then return false end
-    local path = CONFIG_FOLDER .. "/" .. name .. ".json"
-    if isfile(path) then pcall(function() delfile(path) end) end
-    return true
-end
-
-local function listLocalConfigs()
-    if not hasFileAPI() then return {} end
-    ensureFolder()
-    local configs = {}
-    local ok, files = pcall(function() return listfiles(CONFIG_FOLDER) end)
-    if ok and files then
-        for _, f in ipairs(files) do
-            local name = f:match("([^/\\]+)%.json$")
-            if name then table.insert(configs, name) end
-        end
-    end
-    table.sort(configs)
-    return configs
-end
-
-local b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-local function base64Encode(data)
-    return ((data:gsub('.', function(x)
-        local r, b = '', x:byte()
-        for i = 8, 1, -1 do r = r .. (b % 2 ^ i - b % 2 ^ (i - 1) > 0 and '1' or '0') end
-        return r
-    end) .. '0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
-        if #x < 6 then return '' end
-        local c = 0
-        for i = 1, 6 do c = c + (x:sub(i, i) == '1' and 2 ^ (6 - i) or 0) end
-        return b64chars:sub(c + 1, c + 1)
-    end) .. ({ '', '==', '=' })[#data % 3 + 1])
-end
-
-local function base64Decode(data)
-    data = string.gsub(data, '[^' .. b64chars .. '=]', '')
-    return (data:gsub('.', function(x)
-        if x == '=' then return '' end
-        local r, f = '', (b64chars:find(x) - 1)
-        for i = 6, 1, -1 do r = r .. (f % 2 ^ i - f % 2 ^ (i - 1) > 0 and '1' or '0') end
-        return r
-    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
-        if #x ~= 8 then return '' end
-        local c = 0
-        for i = 1, 8 do c = c + (x:sub(i, i) == '1' and 2 ^ (8 - i) or 0) end
-        return string.char(c)
-    end))
-end
-
-local function generateKey()
-    local data = {}
-    for k, v in pairs(CONFIG) do
-        if type(v) == "boolean" or type(v) == "number" or type(v) == "string" then
-            data[k] = v
-        end
-    end
-    return KEY_PREFIX .. base64Encode(HttpService:JSONEncode(data))
-end
-
-local function activateKey(key)
-    if not key or #key < 8 then return false, "Ключ слишком короткий" end
-    key = key:gsub("%s", "")
-    if key:sub(1, #KEY_PREFIX) == KEY_PREFIX then key = key:sub(#KEY_PREFIX + 1) end
-    local ok, json = pcall(function() return base64Decode(key) end)
-    if not ok or not json or json == "" then return false, "Ошибка декодирования" end
-    local data
-    pcall(function() data = HttpService:JSONDecode(json) end)
-    if type(data) ~= "table" then return false, "Неверный формат ключа" end
-    local applied = 0
-    for k, v in pairs(data) do
-        if CONFIG[k] ~= nil then CONFIG[k] = v applied = applied + 1 end
-    end
-    if applied == 0 then return false, "В ключе нет настроек" end
-    return true, applied
-end
-
-local function copyToClipboard(text)
-    if setclipboard then pcall(function() setclipboard(text) end) return true end
-    return false
-end
 
 --==================== ТЕХ РАБОТЫ ====================
 local maintenanceBanner = nil
@@ -237,22 +107,11 @@ end
 local function applyMaintenance(state)
     STATE.Maintenance = state
     if state then
-        if conns.ka then conns.ka:Disconnect() conns.ka = nil end
-        if conns.farm then conns.farm:Disconnect() conns.farm = nil end
-        if conns.rebirth then pcall(function() task.cancel(conns.rebirth) end) conns.rebirth = nil end
-        if conns.fling then conns.fling:Disconnect() conns.fling = nil end
-        if conns.flingAll then conns.flingAll:Disconnect() conns.flingAll = nil end
-        if conns.anti then conns.anti:Disconnect() conns.anti = nil end
-        if conns.speed then conns.speed:Disconnect() conns.speed = nil end
-        if conns.noclip then conns.noclip:Disconnect() conns.noclip = nil end
-        if conns.infJump then conns.infJump:Disconnect() conns.infJump = nil end
-        if conns.fly then conns.fly:Disconnect() conns.fly = nil end
-        if conns.flyBV then conns.flyBV:Destroy() conns.flyBV = nil end
-        if conns.flyBG then conns.flyBG:Destroy() conns.flyBG = nil end
-        if conns.bhop then conns.bhop:Disconnect() conns.bhop = nil end
-        if conns.spin then conns.spin:Disconnect() conns.spin = nil end
-        if conns.aura then conns.aura:Disconnect() conns.aura = nil end
-        if conns.afk then conns.afk:Disconnect() conns.afk = nil end
+        for _, k in ipairs({"ka","farm","rebirth","fling","flingAll","anti","speed","noclip","infJump","fly","bhop","spin","aura","afk"}) do
+            if conns[k] then pcall(function() conns[k]:Disconnect() end) conns[k] = nil end
+        end
+        if conns.flyBV then pcall(function() conns.flyBV:Destroy() end) conns.flyBV = nil end
+        if conns.flyBG then pcall(function() conns.flyBG:Destroy() end) conns.flyBG = nil end
         createMaintenanceBanner()
         if main then main.Visible = false end
         if openBtn then openBtn.Visible = false end
@@ -304,20 +163,24 @@ local function fling(targetChar)
         part.CFrame = hrp.CFrame * CFrame.new(0, 3, 0)
         part.Parent = workspace
         local weld = Instance.new("Weld")
-        weld.Part0 = hrp weld.Part1 = part
+        weld.Part0 = hrp
+        weld.Part1 = part
         weld.C0 = CFrame.new(0, 3, 0)
         weld.Parent = part
         local rv = Instance.new("BodyAngularVelocity")
         rv.AngularVelocity = Vector3.new(999999, 999999, 999999)
         rv.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-        rv.P = 999999 rv.Parent = part
+        rv.P = 999999
+        rv.Parent = part
         local bv = Instance.new("BodyVelocity")
         bv.Velocity = Vector3.new(0, 999999, 0)
         bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
         bv.Parent = part
-        task.delay(0.8, function() pcall(function()
-            rv:Destroy() bv:Destroy() weld:Destroy() part:Destroy()
-        end) end)
+        task.delay(0.8, function()
+            pcall(function()
+                rv:Destroy() bv:Destroy() weld:Destroy() part:Destroy()
+            end)
+        end)
     end)
     return true
 end
@@ -642,8 +505,13 @@ local function applyFullbright(state)
     end
 end
 local function applyNoFog(state)
-    if state then Lighting.FogEnd = 9e9 Lighting.FogStart = 9e9
-    else Lighting.FogEnd = 100000 Lighting.FogStart = 0 end
+    if state then
+        Lighting.FogEnd = 9e9
+        Lighting.FogStart = 9e9
+    else
+        Lighting.FogEnd = 100000
+        Lighting.FogStart = 0
+    end
 end
 
 local function applyAntiAfk(state)
@@ -702,7 +570,7 @@ hudVer.Size = UDim2.new(0, 40, 1, 0)
 hudVer.Position = UDim2.new(0, 92, 0, 0)
 hudVer.BackgroundTransparency = 1
 hudVer.Font = Enum.Font.Gotham
-hudVer.Text = "v6.4"
+hudVer.Text = "v6.5"
 hudVer.TextColor3 = THEME.TextDim
 hudVer.TextSize = 10
 hudVer.TextXAlignment = Enum.TextXAlignment.Left
@@ -789,7 +657,7 @@ verLbl.Size = UDim2.new(1, -200, 0, 14)
 verLbl.Position = UDim2.new(0, 24, 0, 36)
 verLbl.BackgroundTransparency = 1
 verLbl.Font = Enum.Font.Gotham
-verLbl.Text = "v6.4 | admin panel"
+verLbl.Text = "v6.5 | admin panel"
 verLbl.TextColor3 = THEME.TextDim
 verLbl.TextSize = 9
 verLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -798,7 +666,7 @@ local shutdownBtn = Instance.new("TextButton", header)
 shutdownBtn.Size = UDim2.new(0, 30, 0, 30)
 shutdownBtn.Position = UDim2.new(1, -110, 0.5, -15)
 shutdownBtn.BackgroundColor3 = THEME.Danger
-shutdownBtn.Text = "⏻"
+shutdownBtn.Text = "X"
 shutdownBtn.Font = Enum.Font.GothamBold
 shutdownBtn.TextSize = 14
 shutdownBtn.TextColor3 = Color3.new(1,1,1)
@@ -809,7 +677,7 @@ local closeBtn = Instance.new("TextButton", header)
 closeBtn.Size = UDim2.new(0, 30, 0, 30)
 closeBtn.Position = UDim2.new(1, -40, 0.5, -15)
 closeBtn.BackgroundColor3 = Color3.fromRGB(240, 240, 245)
-closeBtn.Text = "×"
+closeBtn.Text = "X"
 closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 16
 closeBtn.TextColor3 = Color3.fromRGB(30, 30, 40)
@@ -827,7 +695,9 @@ Instance.new("UICorner", tabBar).CornerRadius = UDim.new(0, 10)
 local tabLayout = Instance.new("UIListLayout", tabBar)
 tabLayout.Padding = UDim.new(0, 4)
 local tabPad = Instance.new("UIPadding", tabBar)
-tabPad.PaddingTop = UDim.new(0, 8) tabPad.PaddingLeft = UDim.new(0, 8) tabPad.PaddingRight = UDim.new(0, 8)
+tabPad.PaddingTop = UDim.new(0, 8)
+tabPad.PaddingLeft = UDim.new(0, 8)
+tabPad.PaddingRight = UDim.new(0, 8)
 
 local content = Instance.new("Frame", main)
 content.Size = UDim2.new(1, -215, 1, -72)
@@ -930,13 +800,16 @@ local function addToggle(card, y, label, default, cb)
     check.Size = UDim2.new(1, 0, 1, 0)
     check.BackgroundTransparency = 1
     check.Font = Enum.Font.GothamBold
-    check.Text = "✓"
+    check.Text = "V"
     check.TextColor3 = Color3.new(1,1,1)
     check.TextSize = 12
     check.Visible = false
 
     local state = default or false
-    if state then box.BackgroundColor3 = THEME.Accent check.Visible = true end
+    if state then
+        box.BackgroundColor3 = THEME.Accent
+        check.Visible = true
+    end
 
     row.MouseButton1Click:Connect(function()
         state = not state
@@ -1002,13 +875,20 @@ local function addSlider(card, y, label, min, max, default, cb)
     end
 
     bar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true update(input) end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            update(input)
+        end
     end)
     UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then update(input) end
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            update(input)
+        end
     end)
     UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
     end)
 end
 
@@ -1040,7 +920,9 @@ local function addDropdown(card, y, label, options, default, cb)
     Instance.new("UICorner", dropBtn).CornerRadius = UDim.new(0, 6)
 
     local idx = 1
-    for i, o in ipairs(options) do if o == default then idx = i break end end
+    for i, o in ipairs(options) do
+        if o == default then idx = i break end
+    end
 
     dropBtn.MouseButton1Click:Connect(function()
         idx = idx % #options + 1
@@ -1053,7 +935,9 @@ local currentTab = "combat"
 
 local function rebuildContent()
     for _, c in ipairs(contentScroll:GetChildren()) do
-        if c:IsA("Frame") and c:GetAttribute("isCard") then c:Destroy() end
+        if c:IsA("Frame") and c:GetAttribute("isCard") then
+            c:Destroy()
+        end
     end
 
     if currentTab == "combat" then
@@ -1150,7 +1034,7 @@ local function rebuildContent()
         shutdownBig.Size = UDim2.new(1, -28, 0, 40)
         shutdownBig.Position = UDim2.new(0, 14, 0, 56)
         shutdownBig.BackgroundColor3 = THEME.Danger
-        shutdownBig.Text = "⏻  ВЫКЛЮЧИТЬ СКРИПТ"
+        shutdownBig.Text = "ВЫКЛЮЧИТЬ СКРИПТ"
         shutdownBig.Font = Enum.Font.GothamBold
         shutdownBig.TextSize = 12
         shutdownBig.TextColor3 = Color3.new(1,1,1)
@@ -1217,10 +1101,10 @@ local function makeTab(id, icon, label)
     end)
 end
 
-makeTab("combat", "⚔", "Combat")
-makeTab("movement", "🏃", "Movement")
-makeTab("render", "🎨", "Render")
-makeTab("misc", "🎲", "Misc")
+makeTab("combat", "C", "Combat")
+makeTab("movement", "M", "Movement")
+makeTab("render", "R", "Render")
+makeTab("misc", "M", "Misc")
 
 sidebarButtons["combat"].button.BackgroundColor3 = THEME.AccentDim
 sidebarButtons["combat"].button.BackgroundTransparency = 0.1
@@ -1243,4 +1127,4 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("[Mops Hub v6.4] Загружен. RIGHT SHIFT — открыть.")
+print("[Mops Hub v6.5] Загружен. RIGHT SHIFT — открыть.")
