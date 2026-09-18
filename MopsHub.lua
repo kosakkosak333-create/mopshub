@@ -1,7 +1,6 @@
 --=========================================================
---  MOPS HUB v9.2 | Chat + Roles + Owner + Config + Keys
---  RIGHT SHIFT ili [DOG] - otkryt
---  Bez XOR, bez emoji v kode (dlya lyubogo executor)
+--  MOPS HUB v9.4 | Chat + Config as separate windows
+--  RIGHT SHIFT ili [M] - otkryt
 --=========================================================
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
@@ -25,8 +24,7 @@ local ROLE_FILE = "MopsHub_Role.txt"
 local CONFIG_FOLDER = "MopsHub/Configs"
 local KEY_PREFIX = "MOPS-"
 
---==================== SHIFROVKA PAROLYA (b64) ====================
--- Kikisk234 v base64
+--==================== SHIFROVKA PAROLYA ====================
 local _ENCODED_PASS = "S2lzaXNrMjM0"
 
 local function _b64decode(data)
@@ -83,7 +81,6 @@ local ROLE_COLORS = {
     Free      = Color3.fromRGB(180, 180, 200),
     User      = Color3.fromRGB(200, 200, 220),
 }
--- Ikonki (tekstovye, bez emoji v kode)
 local ROLE_ICONS = {
     Owner = "OWN", Mops = "MOPS", Premium = "PRM",
     Moderator = "MOD", VIP = "VIP", Free = "FREE", User = "USER",
@@ -112,12 +109,12 @@ local CONFIG = {
     AntiAfk = false,
 }
 local BINDS = {}
-local listeningForBind = nil
 local conns = {}
 local screenGui, main, openBtn, hud, contentScroll, hudRole
+local chatWindow, configWindow
 local allCards = {}
 
---==================== ROL / OWNER ====================
+--==================== ROL ====================
 local myRole = "Free"
 local isOwner = false
 local ownerPasswordUsed = false
@@ -166,7 +163,7 @@ local function httpPut(url, body, headers)
     end
 end
 
---==================== OBLAKO (jsonbin) ====================
+--==================== OBLAKO ====================
 local function _fetchBin()
     local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
     if not raw then return nil end
@@ -180,8 +177,7 @@ end
 local function _pushBin(record)
     if not record or type(record) ~= "table" then return end
     record.messages = record.messages or {}
-    local body = HttpService:JSONEncode(record)
-    httpPut(CHAT_URL, body, {
+    httpPut(CHAT_URL, HttpService:JSONEncode(record), {
         ["Content-Type"] = "application/json",
         ["X-Master-Key"] = CHAT_API_KEY,
     })
@@ -205,7 +201,11 @@ local function grantRoleCloud(targetName, role)
     local record = _fetchBin()
     if not record then return false end
     record.grantedRoles = record.grantedRoles or {}
-    record.grantedRoles[targetName] = role
+    if role == "Free" or role == nil then
+        record.grantedRoles[targetName] = nil
+    else
+        record.grantedRoles[targetName] = role
+    end
     _pushBin(record)
     grantedRolesCache[targetName] = role
     return true
@@ -464,7 +464,7 @@ function showOwnerPasswordPrompt(onComplete)
     cancelBtn.Size = UDim2.new(0, 80, 0, 22)
     cancelBtn.Position = UDim2.new(0.5, -40, 1, -28)
     cancelBtn.BackgroundTransparency = 1
-    cancelBtn.Text = "Otmema"
+    cancelBtn.Text = "Otmena"
     cancelBtn.Font = Enum.Font.Gotham
     cancelBtn.TextSize = 11
     cancelBtn.TextColor3 = THEME.TextFaint
@@ -612,6 +612,13 @@ local function showRoleSelection(onDone)
 
         btn.MouseButton1Click:Connect(function()
             if needsPass then
+                if isOwner then
+                    myRole = "Owner"
+                    saveRole("Owner")
+                    selGui:Destroy()
+                    if onDone then onDone("Owner") end
+                    return
+                end
                 showOwnerPasswordPrompt(function(success)
                     if success then
                         selGui:Destroy()
@@ -722,6 +729,8 @@ local function applyMaintenance(state)
         if main then main.Visible = false end
         if openBtn then openBtn.Visible = false end
         if hud then hud.Visible = false end
+        if chatWindow then chatWindow.Visible = false end
+        if configWindow then configWindow.Visible = false end
     else
         removeMaintenanceBanner()
         if openBtn then openBtn.Visible = true end
@@ -1202,186 +1211,6 @@ local function applyAllFromConfig()
     applyAntiAfk(CONFIG.AntiAfk)
 end
 
---==================== CHAT ====================
-local chatMessages = {}
-local chatScroll, chatInput, chatSendBtn
-
-function loadChatMessages()
-    local record = _fetchBin()
-    if not record or type(record.messages) ~= "table" then
-        chatMessages = {}
-        return
-    end
-    chatMessages = {}
-    for _, v in ipairs(record.messages) do
-        if type(v) == "string" then
-            local name, role, text, time = v:match("([^|]+)|([^|]+)|([^|]+)|(%d+)")
-            if name and role and text then
-                table.insert(chatMessages, {name = name, role = role, text = text, time = tonumber(time) or 0})
-            end
-        end
-    end
-    table.sort(chatMessages, function(a,b) return a.time < b.time end)
-end
-
-function renderChatMessages()
-    if not chatScroll or not chatScroll.Parent then return end
-    for _, c in ipairs(chatScroll:GetChildren()) do
-        if c:IsA("TextLabel") then c:Destroy() end
-    end
-    if #chatMessages == 0 then
-        local empty = Instance.new("TextLabel", chatScroll)
-        empty.Size = UDim2.new(1, -10, 0, 30)
-        empty.BackgroundTransparency = 1
-        empty.Font = Enum.Font.Gotham
-        empty.Text = "- pusto -"
-        empty.TextColor3 = THEME.TextFaint
-        empty.TextSize = 11
-        empty.TextXAlignment = Enum.TextXAlignment.Center
-        return
-    end
-    for _, msg in ipairs(chatMessages) do
-        local lbl = Instance.new("TextLabel", chatScroll)
-        lbl.Size = UDim2.new(1, -10, 0, 0)
-        lbl.AutomaticSize = Enum.AutomaticSize.Y
-        lbl.BackgroundTransparency = 1
-        lbl.Font = Enum.Font.Gotham
-        local icon = ROLE_EMOJI[msg.role] or "[USER]"
-        lbl.Text = icon .. " " .. msg.name .. ": " .. msg.text
-        lbl.TextColor3 = ROLE_COLORS[msg.role] or ROLE_COLORS.User
-        lbl.TextSize = 11
-        lbl.TextWrapped = true
-        lbl.TextXAlignment = Enum.TextXAlignment.Left
-    end
-    task.wait()
-    chatScroll.CanvasPosition = Vector2.new(0, chatScroll.AbsoluteCanvasSize.Y)
-end
-
-local function sendChatMessage(text)
-    if STATE.Maintenance then return end
-    if text == "" or #text > 200 then return end
-    local clean = text:gsub("|", "/"):gsub("\n", " ")
-    local entry = string.format("%s|%s|%s|%d", LocalPlayer.Name, myRole, clean, os.time())
-    task.spawn(function()
-        local record = _fetchBin()
-        if not record then
-            record = {messages = {}}
-        end
-        record.messages = record.messages or {}
-        table.insert(record.messages, entry)
-        while #record.messages > 100 do table.remove(record.messages, 1) end
-        _pushBin(record)
-        task.wait(0.4)
-        loadChatMessages()
-        renderChatMessages()
-    end)
-end
-
-function createChatUI(parent)
-    local hdr = Instance.new("TextLabel", parent)
-    hdr.Size = UDim2.new(1, 0, 0, 24)
-    hdr.BackgroundTransparency = 1
-    hdr.Font = Enum.Font.GothamBold
-    hdr.Text = "GLOBALNYJ CHAT MOPS"
-    hdr.TextColor3 = THEME.Accent
-    hdr.TextSize = 12
-    hdr.TextXAlignment = Enum.TextXAlignment.Left
-    hdr.LayoutOrder = 1
-
-    local roleHdr = Instance.new("TextLabel", parent)
-    roleHdr.Size = UDim2.new(1, 0, 0, 20)
-    roleHdr.BackgroundTransparency = 1
-    roleHdr.Font = Enum.Font.GothamBold
-    roleHdr.Text = "Tvoya rol: " .. myRole
-    roleHdr.TextColor3 = ROLE_COLORS[myRole] or ROLE_COLORS.User
-    roleHdr.TextSize = 12
-    roleHdr.TextXAlignment = Enum.TextXAlignment.Left
-    roleHdr.LayoutOrder = 2
-
-    local chatFrame = Instance.new("Frame", parent)
-    chatFrame.Size = UDim2.new(1, 0, 0, 320)
-    chatFrame.BackgroundColor3 = THEME.Background
-    chatFrame.BackgroundTransparency = 0.3
-    chatFrame.BorderSizePixel = 0
-    chatFrame.LayoutOrder = 3
-    Instance.new("UICorner", chatFrame).CornerRadius = UDim.new(0, 8)
-    local cfS = Instance.new("UIStroke", chatFrame)
-    cfS.Color = THEME.Border cfS.Thickness = 1 cfS.Transparency = 0.4
-
-    chatScroll = Instance.new("ScrollingFrame", chatFrame)
-    chatScroll.Size = UDim2.new(1, -8, 1, -8)
-    chatScroll.Position = UDim2.new(0, 4, 0, 4)
-    chatScroll.BackgroundTransparency = 1
-    chatScroll.BorderSizePixel = 0
-    chatScroll.ScrollBarThickness = 3
-    chatScroll.ScrollBarImageColor3 = THEME.Accent
-    chatScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-
-    local cLayout = Instance.new("UIListLayout", chatScroll)
-    cLayout.Padding = UDim.new(0, 6)
-    cLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    cLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        chatScroll.CanvasSize = UDim2.new(0, 0, 0, cLayout.AbsoluteContentSize.Y + 10)
-    end)
-
-    chatInput = Instance.new("TextBox", parent)
-    chatInput.Size = UDim2.new(1, -100, 0, 38)
-    chatInput.BackgroundColor3 = THEME.Background
-    chatInput.BackgroundTransparency = 0.4
-    chatInput.Font = Enum.Font.Gotham
-    chatInput.PlaceholderText = "Soobshenie... (Enter)"
-    chatInput.PlaceholderColor3 = THEME.TextDim
-    chatInput.Text = ""
-    chatInput.TextColor3 = THEME.Text
-    chatInput.TextSize = 12
-    chatInput.TextXAlignment = Enum.TextXAlignment.Left
-    chatInput.ClearTextOnFocus = false
-    chatInput.LayoutOrder = 4
-    Instance.new("UICorner", chatInput).CornerRadius = UDim.new(0, 8)
-    local ciP = Instance.new("UIPadding", chatInput) ciP.PaddingLeft = UDim.new(0, 10)
-
-    chatSendBtn = Instance.new("TextButton", parent)
-    chatSendBtn.Size = UDim2.new(0, 90, 0, 38)
-    chatSendBtn.BackgroundColor3 = THEME.AccentDim
-    chatSendBtn.Text = "SEND"
-    chatSendBtn.Font = Enum.Font.GothamBold
-    chatSendBtn.TextSize = 12
-    chatSendBtn.TextColor3 = Color3.new(1,1,1)
-    chatSendBtn.BorderSizePixel = 0
-    chatSendBtn.LayoutOrder = 5
-    Instance.new("UICorner", chatSendBtn).CornerRadius = UDim.new(0, 8)
-
-    chatSendBtn.MouseButton1Click:Connect(function()
-        if chatInput.Text ~= "" then
-            local txt = chatInput.Text
-            chatInput.Text = ""
-            sendChatMessage(txt)
-        end
-    end)
-    chatInput.FocusLost:Connect(function(enter)
-        if enter and chatInput.Text ~= "" then
-            local txt = chatInput.Text
-            chatInput.Text = ""
-            sendChatMessage(txt)
-        end
-    end)
-
-    task.spawn(function()
-        loadChatMessages()
-        renderChatMessages()
-    end)
-end
-
-task.spawn(function()
-    while true do
-        task.wait(CHAT_READ_INTERVAL)
-        if chatScroll and chatScroll.Parent then
-            loadChatMessages()
-            renderChatMessages()
-        end
-    end
-end)
-
 --==================== GUI ====================
 screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MopsHub"
@@ -1430,7 +1259,7 @@ hudVer.Size = UDim2.new(0, 40, 1, 0)
 hudVer.Position = UDim2.new(0, 92, 0, 0)
 hudVer.BackgroundTransparency = 1
 hudVer.Font = Enum.Font.Gotham
-hudVer.Text = "v9.2"
+hudVer.Text = "v9.4"
 hudVer.TextColor3 = THEME.TextDim
 hudVer.TextSize = 10
 hudVer.TextXAlignment = Enum.TextXAlignment.Left
@@ -1513,7 +1342,7 @@ header.BackgroundTransparency = 0.2
 header.BorderSizePixel = 0
 
 local logoLbl = Instance.new("TextLabel", header)
-logoLbl.Size = UDim2.new(1, -200, 0, 30)
+logoLbl.Size = UDim2.new(1, -260, 0, 30)
 logoLbl.Position = UDim2.new(0, 24, 0, 12)
 logoLbl.BackgroundTransparency = 1
 logoLbl.Font = Enum.Font.GothamBlack
@@ -1523,14 +1352,37 @@ logoLbl.TextSize = 20
 logoLbl.TextXAlignment = Enum.TextXAlignment.Left
 
 local verLbl = Instance.new("TextLabel", header)
-verLbl.Size = UDim2.new(1, -200, 0, 14)
+verLbl.Size = UDim2.new(1, -260, 0, 14)
 verLbl.Position = UDim2.new(0, 24, 0, 36)
 verLbl.BackgroundTransparency = 1
 verLbl.Font = Enum.Font.Gotham
-verLbl.Text = "v9.2 | chat + roles + owner + config"
+verLbl.Text = "v9.4 | chat + config + owner + roles"
 verLbl.TextColor3 = THEME.TextDim
 verLbl.TextSize = 9
 verLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+-- СНАЧАЛА кнопки справа (X, Chat, Config)
+local configBtn = Instance.new("TextButton", header)
+configBtn.Size = UDim2.new(0, 30, 0, 30)
+configBtn.Position = UDim2.new(1, -190, 0.5, -15)
+configBtn.BackgroundColor3 = THEME.AccentDim
+configBtn.Text = "CFG"
+configBtn.Font = Enum.Font.GothamBold
+configBtn.TextSize = 10
+configBtn.TextColor3 = Color3.new(1,1,1)
+configBtn.BorderSizePixel = 0
+Instance.new("UICorner", configBtn).CornerRadius = UDim.new(1, 0)
+
+local chatBtn = Instance.new("TextButton", header)
+chatBtn.Size = UDim2.new(0, 30, 0, 30)
+chatBtn.Position = UDim2.new(1, -150, 0.5, -15)
+chatBtn.BackgroundColor3 = THEME.AccentDim
+chatBtn.Text = "CH"
+chatBtn.Font = Enum.Font.GothamBold
+chatBtn.TextSize = 11
+chatBtn.TextColor3 = Color3.new(1,1,1)
+chatBtn.BorderSizePixel = 0
+Instance.new("UICorner", chatBtn).CornerRadius = UDim.new(1, 0)
 
 local shutdownBtn = Instance.new("TextButton", header)
 shutdownBtn.Size = UDim2.new(0, 30, 0, 30)
@@ -1560,6 +1412,590 @@ closeBtn.TextColor3 = Color3.fromRGB(30, 30, 40)
 closeBtn.BorderSizePixel = 0
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(1, 0)
 
+--==================== CHAT WINDOW ====================
+chatWindow = Instance.new("Frame")
+chatWindow.Name = "ChatWindow"
+chatWindow.Size = UDim2.new(0, 380, 0, 460)
+chatWindow.Position = UDim2.new(0, 260, 0.5, -230)
+chatWindow.BackgroundColor3 = THEME.Background
+chatWindow.BackgroundTransparency = 0.1
+chatWindow.BorderSizePixel = 0
+chatWindow.Active = true
+chatWindow.Draggable = true
+chatWindow.Visible = false
+chatWindow.ZIndex = 30
+chatWindow.Parent = screenGui
+Instance.new("UICorner", chatWindow).CornerRadius = UDim.new(0, 12)
+local cwStroke = Instance.new("UIStroke", chatWindow)
+cwStroke.Color = THEME.Accent cwStroke.Thickness = 1.5 cwStroke.Transparency = 0.3
+
+local cwHeader = Instance.new("Frame", chatWindow)
+cwHeader.Size = UDim2.new(1, 0, 0, 40)
+cwHeader.BackgroundColor3 = THEME.Sidebar
+cwHeader.BackgroundTransparency = 0.2
+cwHeader.BorderSizePixel = 0
+cwHeader.ZIndex = 31
+Instance.new("UICorner", cwHeader).CornerRadius = UDim.new(0, 12)
+
+local cwTitle = Instance.new("TextLabel", cwHeader)
+cwTitle.Size = UDim2.new(1, -60, 1, 0)
+cwTitle.Position = UDim2.new(0, 15, 0, 0)
+cwTitle.BackgroundTransparency = 1
+cwTitle.Font = Enum.Font.GothamBold
+cwTitle.Text = "CHAT"
+cwTitle.TextColor3 = THEME.Accent
+cwTitle.TextSize = 13
+cwTitle.TextXAlignment = Enum.TextXAlignment.Left
+cwTitle.ZIndex = 32
+
+local cwClose = Instance.new("TextButton", cwHeader)
+cwClose.Size = UDim2.new(0, 26, 0, 26)
+cwClose.Position = UDim2.new(1, -34, 0.5, -13)
+cwClose.BackgroundColor3 = THEME.Danger
+cwClose.Text = "X"
+cwClose.Font = Enum.Font.GothamBold
+cwClose.TextSize = 12
+cwClose.TextColor3 = Color3.new(1,1,1)
+cwClose.BorderSizePixel = 0
+cwClose.ZIndex = 32
+Instance.new("UICorner", cwClose).CornerRadius = UDim.new(1, 0)
+
+local cwContent = Instance.new("Frame", chatWindow)
+cwContent.Size = UDim2.new(1, -16, 1, -56)
+cwContent.Position = UDim2.new(0, 8, 0, 48)
+cwContent.BackgroundTransparency = 1
+cwContent.ZIndex = 31
+local cwLayout = Instance.new("UIListLayout", cwContent)
+cwLayout.Padding = UDim.new(0, 6)
+cwLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+--==================== CONFIG WINDOW ====================
+configWindow = Instance.new("Frame")
+configWindow.Name = "ConfigWindow"
+configWindow.Size = UDim2.new(0, 700, 0, 560)
+configWindow.Position = UDim2.new(0, 120, 0.5, -280)
+configWindow.BackgroundColor3 = THEME.Background
+configWindow.BackgroundTransparency = 0.1
+configWindow.BorderSizePixel = 0
+configWindow.Active = true
+configWindow.Draggable = true
+configWindow.Visible = false
+configWindow.ZIndex = 30
+configWindow.Parent = screenGui
+Instance.new("UICorner", configWindow).CornerRadius = UDim.new(0, 12)
+local cfgStroke = Instance.new("UIStroke", configWindow)
+cfgStroke.Color = THEME.Accent cfgStroke.Thickness = 1.5 cfgStroke.Transparency = 0.3
+
+local cfgHeader = Instance.new("Frame", configWindow)
+cfgHeader.Size = UDim2.new(1, 0, 0, 40)
+cfgHeader.BackgroundColor3 = THEME.Sidebar
+cfgHeader.BackgroundTransparency = 0.2
+cfgHeader.BorderSizePixel = 0
+cfgHeader.ZIndex = 31
+Instance.new("UICorner", cfgHeader).CornerRadius = UDim.new(0, 12)
+
+local cfgTitle = Instance.new("TextLabel", cfgHeader)
+cfgTitle.Size = UDim2.new(1, -60, 1, 0)
+cfgTitle.Position = UDim2.new(0, 15, 0, 0)
+cfgTitle.BackgroundTransparency = 1
+cfgTitle.Font = Enum.Font.GothamBold
+cfgTitle.Text = "CONFIG MANAGER"
+cfgTitle.TextColor3 = THEME.Accent
+cfgTitle.TextSize = 13
+cfgTitle.TextXAlignment = Enum.TextXAlignment.Left
+cfgTitle.ZIndex = 32
+
+local cfgClose = Instance.new("TextButton", cfgHeader)
+cfgClose.Size = UDim2.new(0, 26, 0, 26)
+cfgClose.Position = UDim2.new(1, -34, 0.5, -13)
+cfgClose.BackgroundColor3 = THEME.Danger
+cfgClose.Text = "X"
+cfgClose.Font = Enum.Font.GothamBold
+cfgClose.TextSize = 12
+cfgClose.TextColor3 = Color3.new(1,1,1)
+cfgClose.BorderSizePixel = 0
+cfgClose.ZIndex = 32
+Instance.new("UICorner", cfgClose).CornerRadius = UDim.new(1, 0)
+
+local cfgContent = Instance.new("Frame", configWindow)
+cfgContent.Size = UDim2.new(1, -16, 1, -56)
+cfgContent.Position = UDim2.new(0, 8, 0, 48)
+cfgContent.BackgroundTransparency = 1
+cfgContent.ZIndex = 31
+
+--==================== CHAT LOGIC ====================
+local chatMessages = {}
+local chatScroll, chatInput, chatSendBtn
+
+function loadChatMessages()
+    local record = _fetchBin()
+    if not record or type(record.messages) ~= "table" then
+        chatMessages = {}
+        return
+    end
+    chatMessages = {}
+    for _, v in ipairs(record.messages) do
+        if type(v) == "string" then
+            local name, role, text, time = v:match("([^|]+)|([^|]+)|([^|]+)|(%d+)")
+            if name and role and text then
+                table.insert(chatMessages, {name = name, role = role, text = text, time = tonumber(time) or 0})
+            end
+        end
+    end
+    table.sort(chatMessages, function(a,b) return a.time < b.time end)
+end
+
+function renderChatMessages()
+    if not chatScroll or not chatScroll.Parent then return end
+    for _, c in ipairs(chatScroll:GetChildren()) do
+        if c:IsA("TextLabel") then c:Destroy() end
+    end
+    if #chatMessages == 0 then
+        local empty = Instance.new("TextLabel", chatScroll)
+        empty.Size = UDim2.new(1, -10, 0, 30)
+        empty.BackgroundTransparency = 1
+        empty.Font = Enum.Font.Gotham
+        empty.Text = "- pusto -"
+        empty.TextColor3 = THEME.TextFaint
+        empty.TextSize = 11
+        empty.TextXAlignment = Enum.TextXAlignment.Center
+        return
+    end
+    for _, msg in ipairs(chatMessages) do
+        local lbl = Instance.new("TextLabel", chatScroll)
+        lbl.Size = UDim2.new(1, -10, 0, 0)
+        lbl.AutomaticSize = Enum.AutomaticSize.Y
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.Gotham
+        local icon = ROLE_EMOJI[msg.role] or "[USER]"
+        lbl.Text = icon .. " " .. msg.name .. ": " .. msg.text
+        lbl.TextColor3 = ROLE_COLORS[msg.role] or ROLE_COLORS.User
+        lbl.TextSize = 11
+        lbl.TextWrapped = true
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+    end
+    task.wait()
+    chatScroll.CanvasPosition = Vector2.new(0, chatScroll.AbsoluteCanvasSize.Y)
+end
+
+local function sendChatMessage(text)
+    if STATE.Maintenance then return end
+    if text == "" or #text > 200 then return end
+    local clean = text:gsub("|", "/"):gsub("\n", " ")
+    local entry = string.format("%s|%s|%s|%d", LocalPlayer.Name, myRole, clean, os.time())
+    task.spawn(function()
+        local record = _fetchBin()
+        if not record then
+            record = {messages = {}}
+        end
+        record.messages = record.messages or {}
+        table.insert(record.messages, entry)
+        while #record.messages > 100 do table.remove(record.messages, 1) end
+        _pushBin(record)
+        task.wait(0.4)
+        loadChatMessages()
+        renderChatMessages()
+    end)
+end
+
+local chatBuilt = false
+local function buildChatWindow()
+    if chatBuilt then return end
+    chatBuilt = true
+
+    local roleHdr = Instance.new("TextLabel", cwContent)
+    roleHdr.Size = UDim2.new(1, 0, 0, 18)
+    roleHdr.BackgroundTransparency = 1
+    roleHdr.Font = Enum.Font.GothamBold
+    roleHdr.Text = "Tvoya rol: " .. myRole
+    roleHdr.TextColor3 = ROLE_COLORS[myRole] or ROLE_COLORS.User
+    roleHdr.TextSize = 11
+    roleHdr.TextXAlignment = Enum.TextXAlignment.Left
+    roleHdr.LayoutOrder = 1
+
+    local chatFrame = Instance.new("Frame", cwContent)
+    chatFrame.Size = UDim2.new(1, 0, 1, -80)
+    chatFrame.BackgroundColor3 = THEME.Background
+    chatFrame.BackgroundTransparency = 0.3
+    chatFrame.BorderSizePixel = 0
+    chatFrame.LayoutOrder = 2
+    Instance.new("UICorner", chatFrame).CornerRadius = UDim.new(0, 8)
+    local cfS = Instance.new("UIStroke", chatFrame)
+    cfS.Color = THEME.Border cfS.Thickness = 1 cfS.Transparency = 0.4
+
+    chatScroll = Instance.new("ScrollingFrame", chatFrame)
+    chatScroll.Size = UDim2.new(1, -8, 1, -8)
+    chatScroll.Position = UDim2.new(0, 4, 0, 4)
+    chatScroll.BackgroundTransparency = 1
+    chatScroll.BorderSizePixel = 0
+    chatScroll.ScrollBarThickness = 3
+    chatScroll.ScrollBarImageColor3 = THEME.Accent
+    chatScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+    local cLayout = Instance.new("UIListLayout", chatScroll)
+    cLayout.Padding = UDim.new(0, 6)
+    cLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        chatScroll.CanvasSize = UDim2.new(0, 0, 0, cLayout.AbsoluteContentSize.Y + 10)
+    end)
+
+    chatInput = Instance.new("TextBox", cwContent)
+    chatInput.Size = UDim2.new(1, -100, 0, 34)
+    chatInput.BackgroundColor3 = THEME.Background
+    chatInput.BackgroundTransparency = 0.4
+    chatInput.Font = Enum.Font.Gotham
+    chatInput.PlaceholderText = "Soobshenie..."
+    chatInput.PlaceholderColor3 = THEME.TextDim
+    chatInput.Text = ""
+    chatInput.TextColor3 = THEME.Text
+    chatInput.TextSize = 12
+    chatInput.TextXAlignment = Enum.TextXAlignment.Left
+    chatInput.ClearTextOnFocus = false
+    chatInput.LayoutOrder = 3
+    Instance.new("UICorner", chatInput).CornerRadius = UDim.new(0, 8)
+    local ciP = Instance.new("UIPadding", chatInput) ciP.PaddingLeft = UDim.new(0, 10)
+
+    chatSendBtn = Instance.new("TextButton", cwContent)
+    chatSendBtn.Size = UDim2.new(0, 90, 0, 34)
+    chatSendBtn.BackgroundColor3 = THEME.AccentDim
+    chatSendBtn.Text = "SEND"
+    chatSendBtn.Font = Enum.Font.GothamBold
+    chatSendBtn.TextSize = 12
+    chatSendBtn.TextColor3 = Color3.new(1,1,1)
+    chatSendBtn.BorderSizePixel = 0
+    chatSendBtn.LayoutOrder = 4
+    Instance.new("UICorner", chatSendBtn).CornerRadius = UDim.new(0, 8)
+
+    chatSendBtn.MouseButton1Click:Connect(function()
+        if chatInput.Text ~= "" then
+            local txt = chatInput.Text
+            chatInput.Text = ""
+            sendChatMessage(txt)
+        end
+    end)
+    chatInput.FocusLost:Connect(function(enter)
+        if enter and chatInput.Text ~= "" then
+            local txt = chatInput.Text
+            chatInput.Text = ""
+            sendChatMessage(txt)
+        end
+    end)
+
+    task.spawn(function()
+        loadChatMessages()
+        renderChatMessages()
+    end)
+end
+
+--==================== CONFIG LOGIC ====================
+local configBuilt = false
+local function buildConfigWindow()
+    if configBuilt then return end
+    configBuilt = true
+
+    local nameBox = Instance.new("TextBox", cfgContent)
+    nameBox.Size = UDim2.new(1, -28, 0, 34)
+    nameBox.Position = UDim2.new(0, 14, 0, 10)
+    nameBox.BackgroundColor3 = THEME.Background
+    nameBox.BackgroundTransparency = 0.4
+    nameBox.Font = Enum.Font.Gotham
+    nameBox.PlaceholderText = "Imya novogo konfiga..."
+    nameBox.PlaceholderColor3 = THEME.TextDim
+    nameBox.Text = ""
+    nameBox.TextColor3 = THEME.Text
+    nameBox.TextSize = 12
+    nameBox.TextXAlignment = Enum.TextXAlignment.Left
+    nameBox.ClearTextOnFocus = false
+    Instance.new("UICorner", nameBox).CornerRadius = UDim.new(0, 8)
+    local nbP = Instance.new("UIPadding", nameBox) nbP.PaddingLeft = UDim.new(0, 12) nbP.Parent = nameBox
+
+    local saveBtn = Instance.new("TextButton", cfgContent)
+    saveBtn.Size = UDim2.new(0, 200, 0, 36)
+    saveBtn.Position = UDim2.new(0, 14, 0, 54)
+    saveBtn.BackgroundColor3 = THEME.AccentDim
+    saveBtn.Text = "SOHRANIT"
+    saveBtn.Font = Enum.Font.GothamBold
+    saveBtn.TextSize = 11
+    saveBtn.TextColor3 = Color3.new(1,1,1)
+    saveBtn.BorderSizePixel = 0
+    Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 8)
+
+    local keyBtn = Instance.new("TextButton", cfgContent)
+    keyBtn.Size = UDim2.new(0, 200, 0, 36)
+    keyBtn.Position = UDim2.new(0, 224, 0, 54)
+    keyBtn.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
+    keyBtn.Text = "SOZDAT KLYUCH"
+    keyBtn.Font = Enum.Font.GothamBold
+    keyBtn.TextSize = 11
+    keyBtn.TextColor3 = Color3.new(1,1,1)
+    keyBtn.BorderSizePixel = 0
+    Instance.new("UICorner", keyBtn).CornerRadius = UDim.new(0, 8)
+
+    local statusLbl = Instance.new("TextLabel", cfgContent)
+    statusLbl.Size = UDim2.new(1, -28, 0, 20)
+    statusLbl.Position = UDim2.new(0, 14, 0, 98)
+    statusLbl.BackgroundTransparency = 1
+    statusLbl.Font = Enum.Font.Gotham
+    statusLbl.Text = ""
+    statusLbl.TextColor3 = THEME.AccentLight
+    statusLbl.TextSize = 11
+    statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local actHdr = Instance.new("TextLabel", cfgContent)
+    actHdr.Size = UDim2.new(1, -28, 0, 20)
+    actHdr.Position = UDim2.new(0, 14, 0, 126)
+    actHdr.BackgroundTransparency = 1
+    actHdr.Font = Enum.Font.GothamBold
+    actHdr.Text = "AKTIVACIYA KLYUCHA"
+    actHdr.TextColor3 = THEME.TextFaint
+    actHdr.TextSize = 10
+    actHdr.TextXAlignment = Enum.TextXAlignment.Left
+
+    local keyInput = Instance.new("TextBox", cfgContent)
+    keyInput.Size = UDim2.new(1, -240, 0, 34)
+    keyInput.Position = UDim2.new(0, 14, 0, 150)
+    keyInput.BackgroundColor3 = THEME.Background
+    keyInput.BackgroundTransparency = 0.4
+    keyInput.Font = Enum.Font.Gotham
+    keyInput.PlaceholderText = "Vstav klyuch (MOPS-...)"
+    keyInput.PlaceholderColor3 = THEME.TextDim
+    keyInput.Text = ""
+    keyInput.TextColor3 = THEME.Text
+    keyInput.TextSize = 11
+    keyInput.TextXAlignment = Enum.TextXAlignment.Left
+    keyInput.ClearTextOnFocus = false
+    Instance.new("UICorner", keyInput).CornerRadius = UDim.new(0, 8)
+    local kiP = Instance.new("UIPadding", keyInput) kiP.PaddingLeft = UDim.new(0, 10) kiP.Parent = keyInput
+
+    local activateBtn = Instance.new("TextButton", cfgContent)
+    activateBtn.Size = UDim2.new(0, 200, 0, 34)
+    activateBtn.Position = UDim2.new(1, -214, 0, 150)
+    activateBtn.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
+    activateBtn.Text = "AKTIVIROVAT"
+    activateBtn.Font = Enum.Font.GothamBold
+    activateBtn.TextSize = 11
+    activateBtn.TextColor3 = Color3.new(1,1,1)
+    activateBtn.BorderSizePixel = 0
+    Instance.new("UICorner", activateBtn).CornerRadius = UDim.new(0, 8)
+
+    local savedHdr = Instance.new("TextLabel", cfgContent)
+    savedHdr.Size = UDim2.new(1, -28, 0, 20)
+    savedHdr.Position = UDim2.new(0, 14, 0, 196)
+    savedHdr.BackgroundTransparency = 1
+    savedHdr.Font = Enum.Font.GothamBold
+    savedHdr.Text = "SOHRANENNYE KONFIGI"
+    savedHdr.TextColor3 = THEME.TextFaint
+    savedHdr.TextSize = 10
+    savedHdr.TextXAlignment = Enum.TextXAlignment.Left
+
+    local listFrame = Instance.new("Frame", cfgContent)
+    listFrame.Size = UDim2.new(1, -28, 1, -240)
+    listFrame.Position = UDim2.new(0, 14, 0, 220)
+    listFrame.BackgroundColor3 = THEME.Background
+    listFrame.BackgroundTransparency = 0.5
+    listFrame.BorderSizePixel = 0
+    Instance.new("UICorner", listFrame).CornerRadius = UDim.new(0, 8)
+
+    local listScroll = Instance.new("ScrollingFrame", listFrame)
+    listScroll.Size = UDim2.new(1, -8, 1, -8)
+    listScroll.Position = UDim2.new(0, 4, 0, 4)
+    listScroll.BackgroundTransparency = 1
+    listScroll.BorderSizePixel = 0
+    listScroll.ScrollBarThickness = 3
+    listScroll.ScrollBarImageColor3 = THEME.Accent
+    listScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+    local listLayout = Instance.new("UIListLayout", listScroll)
+    listLayout.Padding = UDim.new(0, 4)
+    listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        listScroll.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 8)
+    end)
+
+    local function refreshList()
+        for _, c in ipairs(listScroll:GetChildren()) do
+            if c:IsA("Frame") then c:Destroy() end
+        end
+        local configs = listLocalConfigs()
+        if #configs == 0 then
+            local empty = Instance.new("TextLabel", listScroll)
+            empty.Size = UDim2.new(1, 0, 0, 40)
+            empty.BackgroundTransparency = 1
+            empty.Font = Enum.Font.Gotham
+            empty.Text = hasFileAPI() and "- net konfigov -" or "Executor bez failov"
+            empty.TextColor3 = THEME.TextFaint
+            empty.TextSize = 11
+            return
+        end
+        for _, name in ipairs(configs) do
+            local row = Instance.new("Frame", listScroll)
+            row.Size = UDim2.new(1, 0, 0, 32)
+            row.BackgroundColor3 = THEME.Card
+            row.BackgroundTransparency = 0.3
+            row.BorderSizePixel = 0
+            Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+            local nameLbl = Instance.new("TextLabel", row)
+            nameLbl.Size = UDim2.new(1, -260, 1, 0)
+            nameLbl.Position = UDim2.new(0, 12, 0, 0)
+            nameLbl.BackgroundTransparency = 1
+            nameLbl.Font = Enum.Font.GothamMedium
+            nameLbl.Text = name
+            nameLbl.TextColor3 = THEME.Text
+            nameLbl.TextSize = 12
+            nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+            local rLoad = Instance.new("TextButton", row)
+            rLoad.Size = UDim2.new(0, 40, 0, 24)
+            rLoad.Position = UDim2.new(1, -225, 0.5, -12)
+            rLoad.BackgroundColor3 = THEME.AccentDim
+            rLoad.Text = "LOAD"
+            rLoad.Font = Enum.Font.GothamBold
+            rLoad.TextSize = 10
+            rLoad.TextColor3 = Color3.new(1,1,1)
+            rLoad.BorderSizePixel = 0
+            Instance.new("UICorner", rLoad).CornerRadius = UDim.new(0, 6)
+
+            local rKey = Instance.new("TextButton", row)
+            rKey.Size = UDim2.new(0, 40, 0, 24)
+            rKey.Position = UDim2.new(1, -180, 0.5, -12)
+            rKey.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
+            rKey.Text = "KEY"
+            rKey.Font = Enum.Font.GothamBold
+            rKey.TextSize = 10
+            rKey.TextColor3 = Color3.new(1,1,1)
+            rKey.BorderSizePixel = 0
+            Instance.new("UICorner", rKey).CornerRadius = UDim.new(0, 6)
+
+            local rRename = Instance.new("TextButton", row)
+            rRename.Size = UDim2.new(0, 40, 0, 24)
+            rRename.Position = UDim2.new(1, -135, 0.5, -12)
+            rRename.BackgroundColor3 = Color3.fromRGB(80, 130, 200)
+            rRename.Text = "RNM"
+            rRename.Font = Enum.Font.GothamBold
+            rRename.TextSize = 10
+            rRename.TextColor3 = Color3.new(1,1,1)
+            rRename.BorderSizePixel = 0
+            Instance.new("UICorner", rRename).CornerRadius = UDim.new(0, 6)
+
+            local rDelete = Instance.new("TextButton", row)
+            rDelete.Size = UDim2.new(0, 40, 0, 24)
+            rDelete.Position = UDim2.new(1, -90, 0.5, -12)
+            rDelete.BackgroundColor3 = THEME.Danger
+            rDelete.BackgroundTransparency = 0.3
+            rDelete.Text = "DEL"
+            rDelete.Font = Enum.Font.GothamBold
+            rDelete.TextSize = 10
+            rDelete.TextColor3 = Color3.new(1,1,1)
+            rDelete.BorderSizePixel = 0
+            Instance.new("UICorner", rDelete).CornerRadius = UDim.new(0, 6)
+
+            rLoad.MouseButton1Click:Connect(function()
+                local ok, err = loadLocalConfig(name)
+                if ok then
+                    applyAllFromConfig()
+                    statusLbl.Text = "Zagruzhen: " .. name
+                    statusLbl.TextColor3 = THEME.Success
+                else
+                    statusLbl.Text = tostring(err)
+                    statusLbl.TextColor3 = THEME.Danger
+                end
+            end)
+
+            rKey.MouseButton1Click:Connect(function()
+                local ok, err = loadLocalConfig(name)
+                if not ok then
+                    statusLbl.Text = tostring(err)
+                    statusLbl.TextColor3 = THEME.Danger
+                    return
+                end
+                local key = generateKey()
+                keyInput.Text = key
+                local copied = copyToClipboard(key)
+                statusLbl.Text = copied and ("Klyuch skopirovan (" .. #key .. ")") or "Klyuch sgenerirovan"
+                statusLbl.TextColor3 = THEME.Success
+            end)
+
+            rRename.MouseButton1Click:Connect(function()
+                nameBox.Text = name
+                nameBox:CaptureFocus()
+            end)
+
+            rDelete.MouseButton1Click:Connect(function()
+                deleteLocalConfig(name)
+                statusLbl.Text = "Udalen: " .. name
+                statusLbl.TextColor3 = THEME.Danger
+                refreshList()
+            end)
+        end
+    end
+
+    saveBtn.MouseButton1Click:Connect(function()
+        local name = nameBox.Text
+        if name == "" then
+            statusLbl.Text = "Vvedi imya konfiga"
+            statusLbl.TextColor3 = THEME.Danger
+            return
+        end
+        local ok, err = saveLocalConfig(name)
+        if ok then
+            statusLbl.Text = "Sohranen: " .. name
+            statusLbl.TextColor3 = THEME.Success
+            refreshList()
+        else
+            statusLbl.Text = tostring(err)
+            statusLbl.TextColor3 = THEME.Danger
+        end
+    end)
+
+    keyBtn.MouseButton1Click:Connect(function()
+        local key = generateKey()
+        keyInput.Text = key
+        local copied = copyToClipboard(key)
+        statusLbl.Text = copied and ("Klyuch skopirovan! (" .. #key .. ")") or "Klyuch sgenerirovan"
+        statusLbl.TextColor3 = THEME.Success
+    end)
+
+    activateBtn.MouseButton1Click:Connect(function()
+        local key = keyInput.Text
+        if key == "" then
+            statusLbl.Text = "Vstav klyuch"
+            statusLbl.TextColor3 = THEME.Danger
+            return
+        end
+        local ok, result = activateKey(key)
+        if ok then
+            applyAllFromConfig()
+            statusLbl.Text = "Aktivirovan! Nastroek: " .. tostring(result)
+            statusLbl.TextColor3 = THEME.Success
+        else
+            statusLbl.Text = tostring(result)
+            statusLbl.TextColor3 = THEME.Danger
+        end
+    end)
+
+    refreshList()
+end
+
+--==================== TOGGLE ====================
+chatBtn.MouseButton1Click:Connect(function()
+    chatWindow.Visible = not chatWindow.Visible
+    if chatWindow.Visible then
+        buildChatWindow()
+        chatWindow.ZIndex = 50
+    end
+end)
+
+configBtn.MouseButton1Click:Connect(function()
+    configWindow.Visible = not configWindow.Visible
+    if configWindow.Visible then
+        buildConfigWindow()
+        configWindow.ZIndex = 50
+    end
+end)
+
+cwClose.MouseButton1Click:Connect(function() chatWindow.Visible = false end)
+cfgClose.MouseButton1Click:Connect(function() configWindow.Visible = false end)
+
+--==================== SIDEBAR ====================
 local tabBar = Instance.new("Frame", main)
 tabBar.Size = UDim2.new(0, 180, 1, -72)
 tabBar.Position = UDim2.new(0, 14, 0, 66)
@@ -1638,7 +2074,6 @@ local function makeCard(title, order)
     card.BorderSizePixel = 0
     card.LayoutOrder = order or 0
     card:SetAttribute("isCard", true)
-    card:SetAttribute("cardTitle", title)
     Instance.new("UICorner", card).CornerRadius = UDim.new(0, 12)
     local cs = Instance.new("UIStroke", card) cs.Color = THEME.BorderLight cs.Thickness = 1 cs.Transparency = 0.4
 
@@ -1809,7 +2244,7 @@ local function addDropdown(card, y, label, options, default, cb)
     end)
 end
 
---==================== SIDEBAR ====================
+--==================== SIDEBAR BUTTONS ====================
 local sidebarButtons = {}
 local currentTab = "combat"
 local addOwnerTab
@@ -1960,7 +2395,7 @@ function rebuildContent()
         addToggle(c3, 90, "No Fog", CONFIG.NoFog, function(s) CONFIG.NoFog = s applyNoFog(s) end)
 
     elseif currentTab == "misc" then
-        if not isOwner then
+        if not isOwner and myRole ~= "Mops" then
             local cOwner = makeCard("OWNER DOSTUP", 0)
             local btnOwner = Instance.new("TextButton", cOwner)
             btnOwner.Size = UDim2.new(1, -28, 0, 36)
@@ -1993,335 +2428,99 @@ function rebuildContent()
         addToggle(c2, 56, "Watermark", true, function(s) hud.Visible = s end)
         addToggle(c2, 90, "Show FPS", true, function(s) hudFps.Visible = s end)
 
-    elseif currentTab == "chat" then
-        createChatUI(contentScroll)
+        local c3 = makeCard("SMENIT ROL", 3)
 
-    elseif currentTab == "config" then
-        local c1 = makeCard("Config Manager", 1)
-        c1.Size = UDim2.new(0, 690, 0, 500)
+        local curRoleLbl = Instance.new("TextLabel", c3)
+        curRoleLbl.Size = UDim2.new(1, -28, 0, 20)
+        curRoleLbl.Position = UDim2.new(0, 14, 0, 56)
+        curRoleLbl.BackgroundTransparency = 1
+        curRoleLbl.Font = Enum.Font.Gotham
+        curRoleLbl.Text = "Tekushaya rol: " .. myRole
+        curRoleLbl.TextColor3 = ROLE_COLORS[myRole] or THEME.Text
+        curRoleLbl.TextSize = 11
+        curRoleLbl.TextXAlignment = Enum.TextXAlignment.Left
 
-        local nameBox = Instance.new("TextBox", c1)
-        nameBox.Size = UDim2.new(1, -28, 0, 34)
-        nameBox.Position = UDim2.new(0, 14, 0, 56)
-        nameBox.BackgroundColor3 = THEME.Background
-        nameBox.BackgroundTransparency = 0.4
-        nameBox.Font = Enum.Font.Gotham
-        nameBox.PlaceholderText = "Imya novogo konfiga..."
-        nameBox.PlaceholderColor3 = THEME.TextDim
-        nameBox.Text = ""
-        nameBox.TextColor3 = THEME.Text
-        nameBox.TextSize = 12
-        nameBox.TextXAlignment = Enum.TextXAlignment.Left
-        nameBox.ClearTextOnFocus = false
-        nameBox.Parent = c1
-        Instance.new("UICorner", nameBox).CornerRadius = UDim.new(0, 8)
-        local nbP = Instance.new("UIPadding", nameBox) nbP.PaddingLeft = UDim.new(0, 12) nbP.Parent = nameBox
-
-        local saveBtn = Instance.new("TextButton", c1)
-        saveBtn.Size = UDim2.new(0, 200, 0, 36)
-        saveBtn.Position = UDim2.new(0, 14, 0, 100)
-        saveBtn.BackgroundColor3 = THEME.AccentDim
-        saveBtn.BackgroundTransparency = 0.1
-        saveBtn.Text = "SOHRANIT"
-        saveBtn.Font = Enum.Font.GothamBold
-        saveBtn.TextSize = 11
-        saveBtn.TextColor3 = Color3.new(1,1,1)
-        saveBtn.BorderSizePixel = 0
-        saveBtn.AutoButtonColor = false
-        saveBtn.Parent = c1
-        Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 8)
-
-        local keyBtn = Instance.new("TextButton", c1)
-        keyBtn.Size = UDim2.new(0, 200, 0, 36)
-        keyBtn.Position = UDim2.new(0, 224, 0, 100)
-        keyBtn.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
-        keyBtn.BackgroundTransparency = 0.1
-        keyBtn.Text = "SOZDAT KLYUCH"
-        keyBtn.Font = Enum.Font.GothamBold
-        keyBtn.TextSize = 11
-        keyBtn.TextColor3 = Color3.new(1,1,1)
-        keyBtn.BorderSizePixel = 0
-        keyBtn.AutoButtonColor = false
-        keyBtn.Parent = c1
-        Instance.new("UICorner", keyBtn).CornerRadius = UDim.new(0, 8)
-
-        local statusLbl = Instance.new("TextLabel", c1)
-        statusLbl.Size = UDim2.new(1, -28, 0, 20)
-        statusLbl.Position = UDim2.new(0, 14, 0, 144)
-        statusLbl.BackgroundTransparency = 1
-        statusLbl.Font = Enum.Font.Gotham
-        statusLbl.Text = ""
-        statusLbl.TextColor3 = THEME.AccentLight
-        statusLbl.TextSize = 11
-        statusLbl.TextXAlignment = Enum.TextXAlignment.Left
-        statusLbl.Parent = c1
-
-        local actHdr = Instance.new("TextLabel", c1)
-        actHdr.Size = UDim2.new(1, -28, 0, 20)
-        actHdr.Position = UDim2.new(0, 14, 0, 172)
-        actHdr.BackgroundTransparency = 1
-        actHdr.Font = Enum.Font.GothamBold
-        actHdr.Text = "AKTIVACIYA KLYUCHA"
-        actHdr.TextColor3 = THEME.TextFaint
-        actHdr.TextSize = 10
-        actHdr.TextXAlignment = Enum.TextXAlignment.Left
-        actHdr.Parent = c1
-
-        local keyInput = Instance.new("TextBox", c1)
-        keyInput.Size = UDim2.new(1, -240, 0, 34)
-        keyInput.Position = UDim2.new(0, 14, 0, 196)
-        keyInput.BackgroundColor3 = THEME.Background
-        keyInput.BackgroundTransparency = 0.4
-        keyInput.Font = Enum.Font.Gotham
-        keyInput.PlaceholderText = "Vstav klyuch (MOPS-...)"
-        keyInput.PlaceholderColor3 = THEME.TextDim
-        keyInput.Text = ""
-        keyInput.TextColor3 = THEME.Text
-        keyInput.TextSize = 11
-        keyInput.TextXAlignment = Enum.TextXAlignment.Left
-        keyInput.ClearTextOnFocus = false
-        keyInput.Parent = c1
-        Instance.new("UICorner", keyInput).CornerRadius = UDim.new(0, 8)
-        local kiP = Instance.new("UIPadding", keyInput) kiP.PaddingLeft = UDim.new(0, 10) kiP.Parent = keyInput
-
-        local activateBtn = Instance.new("TextButton", c1)
-        activateBtn.Size = UDim2.new(0, 200, 0, 34)
-        activateBtn.Position = UDim2.new(1, -214, 0, 196)
-        activateBtn.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
-        activateBtn.BackgroundTransparency = 0.1
-        activateBtn.Text = "AKTIVIROVAT"
-        activateBtn.Font = Enum.Font.GothamBold
-        activateBtn.TextSize = 11
-        activateBtn.TextColor3 = Color3.new(1,1,1)
-        activateBtn.BorderSizePixel = 0
-        activateBtn.AutoButtonColor = false
-        activateBtn.Parent = c1
-        Instance.new("UICorner", activateBtn).CornerRadius = UDim.new(0, 8)
-
-        local savedHdr = Instance.new("TextLabel", c1)
-        savedHdr.Size = UDim2.new(1, -28, 0, 20)
-        savedHdr.Position = UDim2.new(0, 14, 0, 240)
-        savedHdr.BackgroundTransparency = 1
-        savedHdr.Font = Enum.Font.GothamBold
-        savedHdr.Text = "SOHRANENNYE KONFIGI"
-        savedHdr.TextColor3 = THEME.TextFaint
-        savedHdr.TextSize = 10
-        savedHdr.TextXAlignment = Enum.TextXAlignment.Left
-        savedHdr.Parent = c1
-
-        local listFrame = Instance.new("Frame", c1)
-        listFrame.Size = UDim2.new(1, -28, 1, -270)
-        listFrame.Position = UDim2.new(0, 14, 0, 264)
-        listFrame.BackgroundColor3 = THEME.Background
-        listFrame.BackgroundTransparency = 0.5
-        listFrame.BorderSizePixel = 0
-        listFrame.Parent = c1
-        Instance.new("UICorner", listFrame).CornerRadius = UDim.new(0, 8)
-
-        local listScroll = Instance.new("ScrollingFrame", listFrame)
-        listScroll.Size = UDim2.new(1, -8, 1, -8)
-        listScroll.Position = UDim2.new(0, 4, 0, 4)
-        listScroll.BackgroundTransparency = 1
-        listScroll.BorderSizePixel = 0
-        listScroll.ScrollBarThickness = 3
-        listScroll.ScrollBarImageColor3 = THEME.Accent
-        listScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-        listScroll.Parent = listFrame
-
-        local listLayout = Instance.new("UIListLayout", listScroll)
-        listLayout.Padding = UDim.new(0, 4)
-        listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        listLayout.Parent = listScroll
-        listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            listScroll.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 8)
-        end)
-
-        local function refreshList()
-            for _, c in ipairs(listScroll:GetChildren()) do
-                if c:IsA("Frame") then c:Destroy() end
-            end
-            local configs = listLocalConfigs()
-            if #configs == 0 then
-                local empty = Instance.new("TextLabel", listScroll)
-                empty.Size = UDim2.new(1, 0, 0, 40)
-                empty.BackgroundTransparency = 1
-                empty.Font = Enum.Font.Gotham
-                empty.Text = hasFileAPI() and "- net konfigov -" or "Executor bez failov"
-                empty.TextColor3 = THEME.TextFaint
-                empty.TextSize = 11
-                return
-            end
-            for _, name in ipairs(configs) do
-                local row = Instance.new("Frame", listScroll)
-                row.Size = UDim2.new(1, 0, 0, 32)
-                row.BackgroundColor3 = THEME.Card
-                row.BackgroundTransparency = 0.3
-                row.BorderSizePixel = 0
-                Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
-
-                local nameLbl = Instance.new("TextLabel", row)
-                nameLbl.Size = UDim2.new(1, -260, 1, 0)
-                nameLbl.Position = UDim2.new(0, 12, 0, 0)
-                nameLbl.BackgroundTransparency = 1
-                nameLbl.Font = Enum.Font.GothamMedium
-                nameLbl.Text = name
-                nameLbl.TextColor3 = THEME.Text
-                nameLbl.TextSize = 12
-                nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-
-                local rLoad = Instance.new("TextButton", row)
-                rLoad.Size = UDim2.new(0, 40, 0, 24)
-                rLoad.Position = UDim2.new(1, -225, 0.5, -12)
-                rLoad.BackgroundColor3 = THEME.AccentDim
-                rLoad.Text = "LOAD"
-                rLoad.Font = Enum.Font.GothamBold
-                rLoad.TextSize = 10
-                rLoad.TextColor3 = Color3.new(1,1,1)
-                rLoad.BorderSizePixel = 0
-                rLoad.AutoButtonColor = false
-                Instance.new("UICorner", rLoad).CornerRadius = UDim.new(0, 6)
-
-                local rKey = Instance.new("TextButton", row)
-                rKey.Size = UDim2.new(0, 40, 0, 24)
-                rKey.Position = UDim2.new(1, -180, 0.5, -12)
-                rKey.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
-                rKey.Text = "KEY"
-                rKey.Font = Enum.Font.GothamBold
-                rKey.TextSize = 10
-                rKey.TextColor3 = Color3.new(1,1,1)
-                rKey.BorderSizePixel = 0
-                rKey.AutoButtonColor = false
-                Instance.new("UICorner", rKey).CornerRadius = UDim.new(0, 6)
-
-                local rRename = Instance.new("TextButton", row)
-                rRename.Size = UDim2.new(0, 40, 0, 24)
-                rRename.Position = UDim2.new(1, -135, 0.5, -12)
-                rRename.BackgroundColor3 = Color3.fromRGB(80, 130, 200)
-                rRename.Text = "RNM"
-                rRename.Font = Enum.Font.GothamBold
-                rRename.TextSize = 10
-                rRename.TextColor3 = Color3.new(1,1,1)
-                rRename.BorderSizePixel = 0
-                rRename.AutoButtonColor = false
-                Instance.new("UICorner", rRename).CornerRadius = UDim.new(0, 6)
-
-                local rDelete = Instance.new("TextButton", row)
-                rDelete.Size = UDim2.new(0, 40, 0, 24)
-                rDelete.Position = UDim2.new(1, -90, 0.5, -12)
-                rDelete.BackgroundColor3 = THEME.Danger
-                rDelete.BackgroundTransparency = 0.3
-                rDelete.Text = "DEL"
-                rDelete.Font = Enum.Font.GothamBold
-                rDelete.TextSize = 10
-                rDelete.TextColor3 = Color3.new(1,1,1)
-                rDelete.BorderSizePixel = 0
-                rDelete.AutoButtonColor = false
-                Instance.new("UICorner", rDelete).CornerRadius = UDim.new(0, 6)
-
-                rLoad.MouseButton1Click:Connect(function()
-                    local ok, err = loadLocalConfig(name)
-                    if ok then
-                        applyAllFromConfig()
-                        statusLbl.Text = "Zagruzhen: " .. name
-                        statusLbl.TextColor3 = THEME.Success
-                        rebuildContent()
-                    else
-                        statusLbl.Text = tostring(err)
-                        statusLbl.TextColor3 = THEME.Danger
+        local changeRoleBtn = Instance.new("TextButton", c3)
+        changeRoleBtn.Size = UDim2.new(1, -28, 0, 40)
+        changeRoleBtn.Position = UDim2.new(0, 14, 0, 84)
+        changeRoleBtn.BackgroundColor3 = THEME.AccentDim
+        changeRoleBtn.BorderSizePixel = 0
+        changeRoleBtn.Text = "SMENIT ROL"
+        changeRoleBtn.Font = Enum.Font.GothamBold
+        changeRoleBtn.TextSize = 13
+        changeRoleBtn.TextColor3 = Color3.new(1, 1, 1)
+        Instance.new("UICorner", changeRoleBtn).CornerRadius = UDim.new(0, 8)
+        changeRoleBtn.MouseButton1Click:Connect(function()
+            showRoleSelection(function(newRole)
+                myRole = newRole
+                saveRole(newRole)
+                if hudRole then
+                    hudRole.Text = myRole
+                    hudRole.TextColor3 = ROLE_COLORS[myRole] or THEME.Text
+                end
+                if newRole == "Owner" then
+                    isOwner = true
+                    ownerPasswordUsed = true
+                    if addOwnerTab then addOwnerTab() end
+                elseif newRole == "Mops" then
+                    if addOwnerTab then addOwnerTab() end
+                else
+                    if sidebarButtons["owner"] then
+                        sidebarButtons["owner"].button:Destroy()
+                        sidebarButtons["owner"] = nil
                     end
-                end)
-
-                rKey.MouseButton1Click:Connect(function()
-                    local ok, err = loadLocalConfig(name)
-                    if not ok then
-                        statusLbl.Text = tostring(err)
-                        statusLbl.TextColor3 = THEME.Danger
-                        return
+                    if currentTab == "owner" then
+                        currentTab = "combat"
                     end
-                    local key = generateKey()
-                    keyInput.Text = key
-                    local copied = copyToClipboard(key)
-                    statusLbl.Text = copied and ("Klyuch skopirovan (" .. #key .. ")") or "Klyuch sgenerirovan"
-                    statusLbl.TextColor3 = THEME.Success
-                end)
-
-                rRename.MouseButton1Click:Connect(function()
-                    nameBox.Text = name
-                    nameBox:CaptureFocus()
-                end)
-
-                rDelete.MouseButton1Click:Connect(function()
-                    deleteLocalConfig(name)
-                    statusLbl.Text = "Udalen: " .. name
-                    statusLbl.TextColor3 = THEME.Danger
-                    refreshList()
-                end)
-            end
-        end
-
-        saveBtn.MouseButton1Click:Connect(function()
-            local name = nameBox.Text
-            if name == "" then
-                statusLbl.Text = "Vvedi imya konfiga"
-                statusLbl.TextColor3 = THEME.Danger
-                return
-            end
-            local ok, err = saveLocalConfig(name)
-            if ok then
-                statusLbl.Text = "Sohranen: " .. name
-                statusLbl.TextColor3 = THEME.Success
-                refreshList()
-            else
-                statusLbl.Text = tostring(err)
-                statusLbl.TextColor3 = THEME.Danger
-            end
-        end)
-
-        keyBtn.MouseButton1Click:Connect(function()
-            local key = generateKey()
-            keyInput.Text = key
-            local copied = copyToClipboard(key)
-            statusLbl.Text = copied and ("Klyuch skopirovan! (" .. #key .. ")") or "Klyuch sgenerirovan"
-            statusLbl.TextColor3 = THEME.Success
-        end)
-
-        activateBtn.MouseButton1Click:Connect(function()
-            local key = keyInput.Text
-            if key == "" then
-                statusLbl.Text = "Vstav klyuch"
-                statusLbl.TextColor3 = THEME.Danger
-                return
-            end
-            local ok, result = activateKey(key)
-            if ok then
-                applyAllFromConfig()
-                statusLbl.Text = "Aktivirovan! Nastroek: " .. tostring(result)
-                statusLbl.TextColor3 = THEME.Success
+                end
                 rebuildContent()
-            else
-                statusLbl.Text = tostring(result)
-                statusLbl.TextColor3 = THEME.Danger
-            end
+            end)
         end)
 
-        refreshList()
+        local resetRoleBtn = Instance.new("TextButton", c3)
+        resetRoleBtn.Size = UDim2.new(1, -28, 0, 32)
+        resetRoleBtn.Position = UDim2.new(0, 14, 0, 132)
+        resetRoleBtn.BackgroundColor3 = THEME.Danger
+        resetRoleBtn.BackgroundTransparency = 0.3
+        resetRoleBtn.BorderSizePixel = 0
+        resetRoleBtn.Text = "Sbrosit rol (Free)"
+        resetRoleBtn.Font = Enum.Font.GothamBold
+        resetRoleBtn.TextSize = 11
+        resetRoleBtn.TextColor3 = Color3.new(1, 1, 1)
+        Instance.new("UICorner", resetRoleBtn).CornerRadius = UDim.new(0, 8)
+        resetRoleBtn.MouseButton1Click:Connect(function()
+            myRole = "Free"
+            saveRole("Free")
+            if hudRole then
+                hudRole.Text = myRole
+                hudRole.TextColor3 = ROLE_COLORS.Free
+            end
+            if sidebarButtons["owner"] then
+                sidebarButtons["owner"].button:Destroy()
+                sidebarButtons["owner"] = nil
+            end
+            if currentTab == "owner" then
+                currentTab = "combat"
+            end
+            rebuildContent()
+        end)
 
     elseif currentTab == "owner" then
-        if not isOwner then
+        if not isOwner and myRole ~= "Mops" then
             local c = makeCard("Net dostupa", 1)
             local lbl = Instance.new("TextLabel", c)
             lbl.Size = UDim2.new(1, -28, 0, 60)
             lbl.Position = UDim2.new(0, 14, 0, 56)
             lbl.BackgroundTransparency = 1
             lbl.Font = Enum.Font.Gotham
-            lbl.Text = "Tolko Owner vidit etu vkladku"
+            lbl.Text = "Tolko Owner i Mops vidyat etu vkladku"
             lbl.TextColor3 = THEME.Danger
             lbl.TextSize = 12
             lbl.TextWrapped = true
             return
         end
 
-        local c1 = makeCard("Vydat Premium", 1)
+        local c1 = makeCard("Vydat roli", 1)
         c1.Size = UDim2.new(0, 330, 0, 340)
 
         local playersScroll = Instance.new("ScrollingFrame", c1)
@@ -2349,15 +2548,15 @@ function rebuildContent()
                 local grantedCache = getGrantedRoles() or {}
                 for _, plr in ipairs(Players:GetPlayers()) do
                     local row = Instance.new("Frame", playersScroll)
-                    row.Size = UDim2.new(1, -8, 0, 34)
+                    row.Size = UDim2.new(1, -8, 0, 60)
                     row.BackgroundColor3 = THEME.Card
                     row.BackgroundTransparency = 0.3
                     row.BorderSizePixel = 0
                     Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
 
                     local nL = Instance.new("TextLabel", row)
-                    nL.Size = UDim2.new(0.55, 0, 1, 0)
-                    nL.Position = UDim2.new(0, 10, 0, 0)
+                    nL.Size = UDim2.new(1, -16, 0, 22)
+                    nL.Position = UDim2.new(0, 10, 0, 4)
                     nL.BackgroundTransparency = 1
                     nL.Font = Enum.Font.GothamMedium
                     nL.Text = plr.Name .. (plr == LocalPlayer and " (ty)" or "")
@@ -2365,47 +2564,53 @@ function rebuildContent()
                     nL.TextSize = 11
                     nL.TextXAlignment = Enum.TextXAlignment.Left
 
-                    local currentRole = grantedCache[plr.Name]
-                    local btn = Instance.new("TextButton", row)
-                    btn.Size = UDim2.new(0.4, -10, 0, 24)
-                    btn.Position = UDim2.new(0.6, 0, 0.5, -12)
-                    btn.BorderSizePixel = 0
-                    btn.Font = Enum.Font.GothamBold
-                    btn.TextSize = 10
-                    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+                    local currentRole = grantedCache[plr.Name] or "Free"
 
-                    if currentRole == "Premium" then
-                        btn.Text = "Uzhe Premium"
-                        btn.BackgroundColor3 = Color3.fromRGB(80, 50, 130)
-                        btn.TextColor3 = Color3.fromRGB(220, 200, 255)
-                    elseif currentRole == "Mops" then
-                        btn.Text = "Uzhe Mops"
-                        btn.BackgroundColor3 = Color3.fromRGB(130, 50, 100)
-                        btn.TextColor3 = Color3.fromRGB(255, 200, 240)
-                    elseif currentRole == "Owner" then
-                        btn.Text = "Owner"
-                        btn.BackgroundColor3 = Color3.fromRGB(130, 100, 20)
-                        btn.TextColor3 = Color3.fromRGB(255, 220, 100)
-                    else
-                        btn.Text = "Vydat Premium"
-                        btn.BackgroundColor3 = THEME.Success
-                        btn.TextColor3 = Color3.fromRGB(20, 20, 20)
-                        btn.MouseButton1Click:Connect(function()
-                            local ok = grantRoleCloud(plr.Name, "Premium")
-                            if ok then
-                                btn.Text = "Uzhe Premium"
-                                btn.BackgroundColor3 = Color3.fromRGB(80, 50, 130)
-                                btn.TextColor3 = Color3.fromRGB(220, 200, 255)
-                                pcall(function()
-                                    game:GetService("StarterGui"):SetCore("SendNotification", {
-                                        Title = "MOPS HUB",
-                                        Text = "Premium vydan: " .. plr.Name,
-                                        Duration = 3,
-                                    })
-                                end)
-                            end
-                        end)
-                    end
+                    local rLbl = Instance.new("TextLabel", row)
+                    rLbl.Size = UDim2.new(0, 120, 0, 14)
+                    rLbl.Position = UDim2.new(0, 10, 0, 26)
+                    rLbl.BackgroundTransparency = 1
+                    rLbl.Font = Enum.Font.Gotham
+                    rLbl.Text = "Rol: " .. currentRole
+                    rLbl.TextColor3 = ROLE_COLORS[currentRole] or THEME.TextDim
+                    rLbl.TextSize = 9
+                    rLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+                    local btnP = Instance.new("TextButton", row)
+                    btnP.Size = UDim2.new(0, 70, 0, 22)
+                    btnP.Position = UDim2.new(1, -160, 0.5, -11)
+                    btnP.BorderSizePixel = 0
+                    btnP.Font = Enum.Font.GothamBold
+                    btnP.TextSize = 9
+                    btnP.Text = "+Premium"
+                    btnP.BackgroundColor3 = Color3.fromRGB(140, 90, 220)
+                    btnP.TextColor3 = Color3.new(1, 1, 1)
+                    Instance.new("UICorner", btnP).CornerRadius = UDim.new(0, 5)
+
+                    local btnM = Instance.new("TextButton", row)
+                    btnM.Size = UDim2.new(0, 70, 0, 22)
+                    btnM.Position = UDim2.new(1, -85, 0.5, -11)
+                    btnM.BorderSizePixel = 0
+                    btnM.Font = Enum.Font.GothamBold
+                    btnM.TextSize = 9
+                    btnM.Text = "+Mops"
+                    btnM.BackgroundColor3 = Color3.fromRGB(220, 100, 180)
+                    btnM.TextColor3 = Color3.new(1, 1, 1)
+                    Instance.new("UICorner", btnM).CornerRadius = UDim.new(0, 5)
+
+                    btnP.MouseButton1Click:Connect(function()
+                        if grantRoleCloud(plr.Name, "Premium") then
+                            rLbl.Text = "Rol: Premium"
+                            rLbl.TextColor3 = ROLE_COLORS.Premium
+                        end
+                    end)
+
+                    btnM.MouseButton1Click:Connect(function()
+                        if grantRoleCloud(plr.Name, "Mops") then
+                            rLbl.Text = "Rol: Mops"
+                            rLbl.TextColor3 = ROLE_COLORS.Mops
+                        end
+                    end)
                 end
             end)
         end
@@ -2457,7 +2662,7 @@ function rebuildContent()
                     lbl.Position = UDim2.new(0, 10, 0, 0)
                     lbl.BackgroundTransparency = 1
                     lbl.Font = Enum.Font.GothamMedium
-                    lbl.Text = icon .. " " .. name .. "  [" .. rl .. "]"
+                    lbl.Text = icon .. " " .. name
                     lbl.TextColor3 = ROLE_COLORS[rl] or THEME.Text
                     lbl.TextSize = 11
                     lbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -2480,7 +2685,7 @@ function rebuildContent()
         info.Position = UDim2.new(0, 14, 0, 56)
         info.BackgroundTransparency = 1
         info.Font = Enum.Font.Gotham
-        info.Text = "Mops Hub v9.2\nMonkey Evolution Client\n\nRIGHT SHIFT - otkryt menu\nM - knopka sleva\n\nRoli: FREE | PREMIUM | MOPS | OWNER\n\nOwner: vvesti parol v Misc"
+        info.Text = "Mops Hub v9.4\nMonkey Evolution Client\n\nRIGHT SHIFT - otkryt menu\nM - knopka sleva\nCH - chat\nCFG - config\n\nRoli: FREE | PREMIUM | MOPS | OWNER"
         info.TextColor3 = THEME.TextDim
         info.TextSize = 11
         info.TextWrapped = true
@@ -2489,19 +2694,18 @@ function rebuildContent()
     end
 end
 
+--==================== CREATE TABS ====================
 makeTab("main", "M", "Main")
 makeTab("combat", "C", "Combat")
 makeTab("movement", "MV", "Movement")
 makeTab("render", "R", "Render")
 makeTab("misc", "MI", "Misc")
-makeTab("chat", "CH", "Chat")
-makeTab("config", "CF", "Config")
 
 addOwnerTab = function()
-    if not isOwner then return end
+    if not isOwner and myRole ~= "Mops" then return end
     if sidebarButtons["owner"] then return end
-    makeTab("owner", "OW", "Owner")
-    print("[MopsHub] Vkladka Owner dobavlena")
+    makeTab("owner", "AD", "Admin")
+    print("[MopsHub] Vkladka Admin dobavlena")
 end
 
 sidebarButtons["combat"].button.BackgroundColor3 = THEME.AccentDim
@@ -2524,6 +2728,13 @@ task.spawn(function()
             hudRole.Text = myRole
             hudRole.TextColor3 = ROLE_COLORS[myRole]
         end
+    elseif savedRole == "Mops" then
+        myRole = "Mops"
+        addOwnerTab()
+        if hudRole then
+            hudRole.Text = myRole
+            hudRole.TextColor3 = ROLE_COLORS.Mops
+        end
     elseif savedRole then
         myRole = savedRole
         if hudRole then
@@ -2536,6 +2747,8 @@ task.spawn(function()
             if chosenRole == "Owner" then
                 isOwner = true
                 ownerPasswordUsed = true
+                addOwnerTab()
+            elseif chosenRole == "Mops" then
                 addOwnerTab()
             end
             if hudRole then
@@ -2553,6 +2766,17 @@ task.spawn(function()
     end)
 
     sendHeartbeat()
+
+    -- Автообновление чата
+    task.spawn(function()
+        while true do
+            task.wait(CHAT_READ_INTERVAL)
+            if chatWindow and chatWindow.Visible and chatBuilt then
+                loadChatMessages()
+                renderChatMessages()
+            end
+        end
+    end)
 end)
 
 --==================== RIGHT SHIFT ====================
@@ -2563,4 +2787,4 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("[Mops Hub v9.2] Zagruzhen. RIGHT SHIFT - otkryt.")
+print("[Mops Hub v9.4] Zagruzhen. RIGHT SHIFT - otkryt.")
