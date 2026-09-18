@@ -1,4 +1,4 @@
--- MOPS HUB v10.8
+-- MOPS HUB v10.9
 -- RS or M - open
 
 local Players = game:GetService("Players")
@@ -81,7 +81,7 @@ local CONFIG = {
     Aura = false, ESP = false,
     Fullbright = false, NoFog = false,
     AntiAfk = false,
-    AutoRewards = false, RewardsDelay = 2,
+    AutoRewards = false, RewardsDelay = 3,
 }
 local BINDS = {}
 local listeningForBind = nil
@@ -885,39 +885,66 @@ local function applyAntiAfk(state)
     end)
 end
 
--- AUTO PLAYTIME REWARDS
 local autoRewardsRunning = false
 local autoRewardsThread = nil
 
 local function claimPlaytimeRewards()
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if not pg then return 0 end
-    local claimed = 0
-    local function scan(container)
-        for _, obj in ipairs(container:GetDescendants()) do
-            if obj:IsA("TextButton") or obj:IsA("ImageButton") then
-                local txt = ""
-                pcall(function() txt = (obj.Text or ""):upper() end)
-                if txt:find("CLAIM") then
-                    if obj.Visible and obj.Active ~= false then
-                        pcall(function()
-                            local absPos = obj.AbsolutePosition
-                            local absSize = obj.AbsoluteSize
-                            if absSize.X > 0 and absSize.Y > 0 then
-                                local cx = absPos.X + absSize.X / 2
-                                local cy = absPos.Y + absSize.Y / 2
-                                VirtualUser:CaptureController()
-                                VirtualUser:ClickButton1(Vector2.new(cx, cy))
-                                claimed = claimed + 1
-                            end
-                        end)
+    local function fireClick(pos, size)
+        pcall(function()
+            if size.X > 0 and size.Y > 0 then
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton1(Vector2.new(pos.X + size.X/2, pos.Y + size.Y/2))
+            end
+        end)
+    end
+
+    local function scanForText(container, textToFind)
+        local results = {}
+        pcall(function()
+            for _, obj in ipairs(container:GetDescendants()) do
+                if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+                    local txt = ""
+                    pcall(function() txt = tostring(obj.Text or ""):upper() end)
+                    if txt:find(textToFind) then
+                        if obj.Visible and obj.AbsoluteSize.X > 0 then
+                            table.insert(results, obj)
+                        end
                     end
                 end
             end
+        end)
+        return results
+    end
+
+    local opened = false
+    local rewardsBtns = scanForText(workspace, "FREE REWARD")
+    for _, obj in ipairs(rewardsBtns) do
+        fireClick(obj.AbsolutePosition, obj.AbsoluteSize)
+        opened = true
+        break
+    end
+
+    if not opened then
+        local more = scanForText(workspace, "PLAYTIME")
+        for _, obj in ipairs(more) do
+            fireClick(obj.AbsolutePosition, obj.AbsoluteSize)
+            opened = true
+            break
         end
     end
-    pcall(function() scan(pg) end)
-    pcall(function() scan(game:GetService("CoreGui")) end)
+
+    task.wait(0.7)
+
+    local claimed = 0
+    local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+    if ps then
+        local claims = scanForText(ps, "CLAIM")
+        for _, obj in ipairs(claims) do
+            fireClick(obj.AbsolutePosition, obj.AbsoluteSize)
+            claimed = claimed + 1
+            task.wait(0.15)
+        end
+    end
     return claimed
 end
 
@@ -932,7 +959,7 @@ local function startAutoRewards()
                     if n > 0 then print("[AutoRewards] Claimed:", n) end
                 end)
             end
-            task.wait(CONFIG.RewardsDelay or 2)
+            task.wait(CONFIG.RewardsDelay or 3)
         end
     end)
 end
@@ -1038,7 +1065,7 @@ hudVer.Size = UDim2.new(0, 40, 1, 0)
 hudVer.Position = UDim2.new(0, 92, 0, 0)
 hudVer.BackgroundTransparency = 1
 hudVer.Font = Enum.Font.Gotham
-hudVer.Text = "v10.8"
+hudVer.Text = "v10.9"
 hudVer.TextColor3 = THEME.TextDim
 hudVer.TextSize = 10
 hudVer.TextXAlignment = Enum.TextXAlignment.Left
@@ -1135,7 +1162,7 @@ verLbl.Size = UDim2.new(1, -260, 0, 14)
 verLbl.Position = UDim2.new(0, 24, 0, 36)
 verLbl.BackgroundTransparency = 1
 verLbl.Font = Enum.Font.Gotham
-verLbl.Text = "v10.8"
+verLbl.Text = "v10.9"
 verLbl.TextColor3 = THEME.TextDim
 verLbl.TextSize = 9
 verLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -1638,7 +1665,6 @@ end
 local function buildChatWindow()
     if chatBuilt then return end
     chatBuilt = true
-
     local title = Instance.new("TextLabel", cwContent)
     title.Size = UDim2.new(1, -20, 0, 24)
     title.Position = UDim2.new(0, 10, 0, 8)
@@ -1648,14 +1674,12 @@ local function buildChatWindow()
     title.TextColor3 = ROLE_COLORS[myRole] or ROLE_COLORS.User
     title.TextSize = 12
     title.TextXAlignment = Enum.TextXAlignment.Left
-
     local chatBox = Instance.new("Frame", cwContent)
     chatBox.Size = UDim2.new(1, -20, 1, -130)
     chatBox.Position = UDim2.new(0, 10, 0, 40)
     chatBox.BackgroundColor3 = THEME.SolidInner
     chatBox.BorderSizePixel = 0
     Instance.new("UICorner", chatBox).CornerRadius = UDim.new(0, 8)
-
     chatScroll = Instance.new("ScrollingFrame", chatBox)
     chatScroll.Size = UDim2.new(1, -8, 1, -8)
     chatScroll.Position = UDim2.new(0, 4, 0, 4)
@@ -1664,13 +1688,11 @@ local function buildChatWindow()
     chatScroll.ScrollBarThickness = 3
     chatScroll.ScrollBarImageColor3 = THEME.Accent
     chatScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-
     local layout = Instance.new("UIListLayout", chatScroll)
     layout.Padding = UDim.new(0, 5)
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
         chatScroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 8)
     end)
-
     chatInput = Instance.new("TextBox", cwContent)
     chatInput.Size = UDim2.new(1, -120, 0, 34)
     chatInput.Position = UDim2.new(0, 10, 1, -44)
@@ -1685,7 +1707,6 @@ local function buildChatWindow()
     chatInput.TextXAlignment = Enum.TextXAlignment.Left
     chatInput.ClearTextOnFocus = false
     Instance.new("UICorner", chatInput).CornerRadius = UDim.new(0, 8)
-
     chatSendBtn = Instance.new("TextButton", cwContent)
     chatSendBtn.Size = UDim2.new(0, 100, 0, 34)
     chatSendBtn.Position = UDim2.new(1, -110, 1, -44)
@@ -1696,7 +1717,6 @@ local function buildChatWindow()
     chatSendBtn.TextColor3 = Color3.new(1,1,1)
     chatSendBtn.BorderSizePixel = 0
     Instance.new("UICorner", chatSendBtn).CornerRadius = UDim.new(0, 8)
-
     chatSendBtn.MouseButton1Click:Connect(function()
         if chatInput.Text ~= "" then
             local txt = chatInput.Text
@@ -1704,7 +1724,6 @@ local function buildChatWindow()
             sendChatMessage(txt)
         end
     end)
-
     chatInput.FocusLost:Connect(function(enter)
         if enter and chatInput.Text ~= "" then
             local txt = chatInput.Text
@@ -1712,7 +1731,6 @@ local function buildChatWindow()
             sendChatMessage(txt)
         end
     end)
-
     task.spawn(function()
         loadChatMessages()
         renderChatMessages()
@@ -1722,7 +1740,6 @@ end
 local function buildConfigWindow()
     if configBuilt then return end
     configBuilt = true
-
     local nameBox = Instance.new("TextBox", cfgContent)
     nameBox.Size = UDim2.new(1, -28, 0, 34)
     nameBox.Position = UDim2.new(0, 14, 0, 10)
@@ -1736,7 +1753,6 @@ local function buildConfigWindow()
     nameBox.TextXAlignment = Enum.TextXAlignment.Left
     nameBox.ClearTextOnFocus = false
     Instance.new("UICorner", nameBox).CornerRadius = UDim.new(0, 8)
-
     local saveBtn = Instance.new("TextButton", cfgContent)
     saveBtn.Size = UDim2.new(0, 200, 0, 36)
     saveBtn.Position = UDim2.new(0, 14, 0, 54)
@@ -1747,7 +1763,6 @@ local function buildConfigWindow()
     saveBtn.TextColor3 = Color3.new(1,1,1)
     saveBtn.BorderSizePixel = 0
     Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 8)
-
     local keyBtn = Instance.new("TextButton", cfgContent)
     keyBtn.Size = UDim2.new(0, 200, 0, 36)
     keyBtn.Position = UDim2.new(0, 224, 0, 54)
@@ -1758,7 +1773,6 @@ local function buildConfigWindow()
     keyBtn.TextColor3 = Color3.new(1,1,1)
     keyBtn.BorderSizePixel = 0
     Instance.new("UICorner", keyBtn).CornerRadius = UDim.new(0, 8)
-
     local statusLbl = Instance.new("TextLabel", cfgContent)
     statusLbl.Size = UDim2.new(1, -28, 0, 20)
     statusLbl.Position = UDim2.new(0, 14, 0, 98)
@@ -1768,7 +1782,6 @@ local function buildConfigWindow()
     statusLbl.TextColor3 = THEME.AccentLight
     statusLbl.TextSize = 11
     statusLbl.TextXAlignment = Enum.TextXAlignment.Left
-
     local keyInput = Instance.new("TextBox", cfgContent)
     keyInput.Size = UDim2.new(1, -240, 0, 34)
     keyInput.Position = UDim2.new(0, 14, 0, 150)
@@ -1782,7 +1795,6 @@ local function buildConfigWindow()
     keyInput.TextXAlignment = Enum.TextXAlignment.Left
     keyInput.ClearTextOnFocus = false
     Instance.new("UICorner", keyInput).CornerRadius = UDim.new(0, 8)
-
     local activateBtn = Instance.new("TextButton", cfgContent)
     activateBtn.Size = UDim2.new(0, 200, 0, 34)
     activateBtn.Position = UDim2.new(1, -214, 0, 150)
@@ -1793,14 +1805,12 @@ local function buildConfigWindow()
     activateBtn.TextColor3 = Color3.new(1,1,1)
     activateBtn.BorderSizePixel = 0
     Instance.new("UICorner", activateBtn).CornerRadius = UDim.new(0, 8)
-
     local listFrame = Instance.new("Frame", cfgContent)
     listFrame.Size = UDim2.new(1, -28, 1, -240)
     listFrame.Position = UDim2.new(0, 14, 0, 220)
     listFrame.BackgroundColor3 = THEME.SolidInner
     listFrame.BorderSizePixel = 0
     Instance.new("UICorner", listFrame).CornerRadius = UDim.new(0, 8)
-
     local listScroll = Instance.new("ScrollingFrame", listFrame)
     listScroll.Size = UDim2.new(1, -8, 1, -8)
     listScroll.Position = UDim2.new(0, 4, 0, 4)
@@ -1808,7 +1818,6 @@ local function buildConfigWindow()
     listScroll.BorderSizePixel = 0
     listScroll.ScrollBarThickness = 3
     listScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-
     local listLayout = Instance.new("UIListLayout", listScroll)
     listLayout.Padding = UDim.new(0, 4)
 
@@ -1835,7 +1844,7 @@ local function buildConfigWindow()
             row.BorderSizePixel = 0
             Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
             local nLbl = Instance.new("TextLabel", row)
-            nLbl.Size = UDim2.new(1, -260, 1, 0)
+            nLbl.Size = UDim2.new(1, -160, 1, 0)
             nLbl.Position = UDim2.new(0, 12, 0, 0)
             nLbl.BackgroundTransparency = 1
             nLbl.Font = Enum.Font.GothamMedium
@@ -1844,8 +1853,8 @@ local function buildConfigWindow()
             nLbl.TextSize = 12
             nLbl.TextXAlignment = Enum.TextXAlignment.Left
             local rLoad = Instance.new("TextButton", row)
-            rLoad.Size = UDim2.new(0, 40, 0, 24)
-            rLoad.Position = UDim2.new(1, -225, 0.5, -12)
+            rLoad.Size = UDim2.new(0, 60, 0, 24)
+            rLoad.Position = UDim2.new(1, -125, 0.5, -12)
             rLoad.BackgroundColor3 = THEME.AccentDim
             rLoad.Text = "LOAD"
             rLoad.Font = Enum.Font.GothamBold
@@ -1854,8 +1863,8 @@ local function buildConfigWindow()
             rLoad.BorderSizePixel = 0
             Instance.new("UICorner", rLoad).CornerRadius = UDim.new(0, 6)
             local rDel = Instance.new("TextButton", row)
-            rDel.Size = UDim2.new(0, 40, 0, 24)
-            rDel.Position = UDim2.new(1, -90, 0.5, -12)
+            rDel.Size = UDim2.new(0, 60, 0, 24)
+            rDel.Position = UDim2.new(1, -60, 0.5, -12)
             rDel.BackgroundColor3 = THEME.Danger
             rDel.Text = "DEL"
             rDel.Font = Enum.Font.GothamBold
@@ -1889,7 +1898,6 @@ local function buildConfigWindow()
         statusLbl.TextColor3 = THEME.Success
         refreshList()
     end)
-
     keyBtn.MouseButton1Click:Connect(function()
         local k = generateKey()
         keyInput.Text = k
@@ -1897,7 +1905,6 @@ local function buildConfigWindow()
         statusLbl.Text = "Key created"
         statusLbl.TextColor3 = THEME.Success
     end)
-
     activateBtn.MouseButton1Click:Connect(function()
         local k = keyInput.Text
         if k == "" then return end
@@ -1908,20 +1915,32 @@ local function buildConfigWindow()
             statusLbl.TextColor3 = THEME.Success
         end
     end)
-
     refreshList()
 end
 
+-- КЛИКИ КНОПОК CH и CFG (ФИКС)
 chatBtn.MouseButton1Click:Connect(function()
-    if not chatBuilt then buildChatWindow() end
+    print("[CH] Clicked")
+    if not chatBuilt then
+        local ok, err = pcall(buildChatWindow)
+        print("[CH] Build result:", ok, err)
+    end
     chatWindow.Visible = not chatWindow.Visible
-    if chatWindow.Visible then chatWindow.ZIndex = 150 end
+    if chatWindow.Visible then
+        chatWindow.ZIndex = 150
+    end
 end)
 
 configBtn.MouseButton1Click:Connect(function()
-    if not configBuilt then buildConfigWindow() end
+    print("[CFG] Clicked")
+    if not configBuilt then
+        local ok, err = pcall(buildConfigWindow)
+        print("[CFG] Build result:", ok, err)
+    end
     configWindow.Visible = not configWindow.Visible
-    if configWindow.Visible then configWindow.ZIndex = 150 end
+    if configWindow.Visible then
+        configWindow.ZIndex = 150
+    end
 end)
 
 cwClose.MouseButton1Click:Connect(function() chatWindow.Visible = false end)
@@ -2192,7 +2211,7 @@ function rebuildContent()
         info.Position = UDim2.new(0, 14, 0, 56)
         info.BackgroundTransparency = 1
         info.Font = Enum.Font.Gotham
-        info.Text = "Mops Hub v10.8\n\nRS - menu\nM - button\nCH/CFG - top\n\nOwner: Kikisk234"
+        info.Text = "Mops Hub v10.9\n\nRS - menu\nM - button\nCH/CFG - top\n\nOwner: Kikisk234"
         info.TextColor3 = THEME.TextDim
         info.TextSize = 11
         info.TextWrapped = true
@@ -2258,8 +2277,6 @@ task.spawn(function()
             end
         end)
     end
-    CONFIG.AutoRewards = true
-    startAutoRewards()
     sendHeartbeat()
     task.spawn(function()
         while true do
@@ -2300,4 +2317,4 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("[Mops Hub v10.8] Loaded.")
+print("[Mops Hub v10.9] Loaded.")
