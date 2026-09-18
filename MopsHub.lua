@@ -1,4 +1,4 @@
---==================== GUI ====================
+-- GUI
 screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MopsHub"
 screenGui.ResetOnSpawn = false
@@ -45,7 +45,7 @@ hudVer.Size = UDim2.new(0, 40, 1, 0)
 hudVer.Position = UDim2.new(0, 92, 0, 0)
 hudVer.BackgroundTransparency = 1
 hudVer.Font = Enum.Font.Gotham
-hudVer.Text = "v10.6"
+hudVer.Text = "v10.7"
 hudVer.TextColor3 = THEME.TextDim
 hudVer.TextSize = 10
 hudVer.TextXAlignment = Enum.TextXAlignment.Left
@@ -81,15 +81,12 @@ hudRole.TextSize = 11
 hudRole.TextXAlignment = Enum.TextXAlignment.Right
 
 local fpsFrames, fpsLastTime = 0, tick()
-task.spawn(function()
-    while hud do
-        fpsFrames = fpsFrames + 1
-        local now = tick()
-        if now - fpsLastTime >= 0.5 then
-            hudFps.Text = math.floor(fpsFrames / (now - fpsLastTime)) .. " FPS"
-            fpsFrames, fpsLastTime = 0, now
-        end
-        RunService.RenderStepped:Wait()
+RunService.RenderStepped:Connect(function()
+    fpsFrames = fpsFrames + 1
+    local now = tick()
+    if now - fpsLastTime >= 0.5 then
+        hudFps.Text = math.floor(fpsFrames / (now - fpsLastTime)) .. " FPS"
+        fpsFrames, fpsLastTime = 0, now
     end
 end)
 
@@ -145,7 +142,7 @@ verLbl.Size = UDim2.new(1, -260, 0, 14)
 verLbl.Position = UDim2.new(0, 24, 0, 36)
 verLbl.BackgroundTransparency = 1
 verLbl.Font = Enum.Font.Gotham
-verLbl.Text = "v10.6"
+verLbl.Text = "v10.7"
 verLbl.TextColor3 = THEME.TextDim
 verLbl.TextSize = 9
 verLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -199,7 +196,6 @@ closeBtn.TextColor3 = Color3.fromRGB(30, 30, 40)
 closeBtn.BorderSizePixel = 0
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(1, 0)
 
--- CHAT WINDOW
 chatWindow = Instance.new("Frame")
 chatWindow.Size = UDim2.new(0, 380, 0, 460)
 chatWindow.Position = UDim2.new(0, 260, 0.5, -230)
@@ -251,7 +247,6 @@ cwContent.Position = UDim2.new(0, 8, 0, 48)
 cwContent.BackgroundTransparency = 1
 cwContent.ZIndex = 101
 
--- CONFIG WINDOW
 configWindow = Instance.new("Frame")
 configWindow.Size = UDim2.new(0, 700, 0, 560)
 configWindow.Position = UDim2.new(0, 120, 0.5, -280)
@@ -279,7 +274,7 @@ cfgTitle.Size = UDim2.new(1, -60, 1, 0)
 cfgTitle.Position = UDim2.new(0, 15, 0, 0)
 cfgTitle.BackgroundTransparency = 1
 cfgTitle.Font = Enum.Font.GothamBold
-cfgTitle.Text = "CONFIG MANAGER"
+cfgTitle.Text = "CONFIG"
 cfgTitle.TextColor3 = THEME.Accent
 cfgTitle.TextSize = 13
 cfgTitle.TextXAlignment = Enum.TextXAlignment.Left
@@ -303,7 +298,6 @@ cfgContent.Position = UDim2.new(0, 8, 0, 48)
 cfgContent.BackgroundTransparency = 1
 cfgContent.ZIndex = 101
 
--- SIDEBAR
 local tabBar = Instance.new("Frame", main)
 tabBar.Size = UDim2.new(0, 180, 1, -72)
 tabBar.Position = UDim2.new(0, 14, 0, 66)
@@ -583,7 +577,6 @@ local function makeTab(id, icon, label)
     end)
 end
 
--- CHAT LOGIC
 local chatMessages = {}
 local chatScroll, chatInput, chatSendBtn
 
@@ -896,17 +889,11 @@ local function buildConfigWindow()
 
     saveBtn.MouseButton1Click:Connect(function()
         local n = nameBox.Text
-        if n == "" then
-            statusLbl.Text = "Enter name"
-            statusLbl.TextColor3 = THEME.Danger
-            return
-        end
-        local ok = saveLocalConfig(n)
-        if ok then
-            statusLbl.Text = "Saved: " .. n
-            statusLbl.TextColor3 = THEME.Success
-            refreshList()
-        end
+        if n == "" then return end
+        saveLocalConfig(n)
+        statusLbl.Text = "Saved"
+        statusLbl.TextColor3 = THEME.Success
+        refreshList()
     end)
 
     keyBtn.MouseButton1Click:Connect(function()
@@ -920,14 +907,11 @@ local function buildConfigWindow()
     activateBtn.MouseButton1Click:Connect(function()
         local k = keyInput.Text
         if k == "" then return end
-        local ok, res = activateKey(k)
+        local ok = activateKey(k)
         if ok then
             applyAllFromConfig()
-            statusLbl.Text = "Activated: " .. tostring(res)
+            statusLbl.Text = "Activated"
             statusLbl.TextColor3 = THEME.Success
-        else
-            statusLbl.Text = tostring(res)
-            statusLbl.TextColor3 = THEME.Danger
         end
     end)
 
@@ -1006,7 +990,7 @@ function rebuildContent()
             btnOwner.Size = UDim2.new(1, -28, 0, 36)
             btnOwner.Position = UDim2.new(0, 14, 0, 56)
             btnOwner.BackgroundColor3 = THEME.Gold
-            btnOwner.Text = "Enter Owner password"
+            btnOwner.Text = "Owner password"
             btnOwner.Font = Enum.Font.GothamBold
             btnOwner.TextSize = 13
             btnOwner.TextColor3 = Color3.fromRGB(20, 20, 20)
@@ -1054,11 +1038,6 @@ function rebuildContent()
                     if addOwnerTab then addOwnerTab() end
                 elseif newRole == "Mops" then
                     if addOwnerTab then addOwnerTab() end
-                else
-                    if sidebarButtons["owner"] then
-                        sidebarButtons["owner"].button:Destroy()
-                        sidebarButtons["owner"] = nil
-                    end
                 end
                 rebuildContent()
             end)
@@ -1119,7 +1098,7 @@ function rebuildContent()
 
     elseif currentTab == "owner" then
         if not isOwner and myRole ~= "Mops" then
-            local c = makeCard("No access", 1)
+            makeCard("No access", 1)
             return
         end
         local c1 = makeCard("GIVE ROLES", 1)
@@ -1216,7 +1195,7 @@ function rebuildContent()
         info.Position = UDim2.new(0, 14, 0, 56)
         info.BackgroundTransparency = 1
         info.Font = Enum.Font.Gotham
-        info.Text = "Mops Hub v10.6\n\nRS - menu\nM - button\nCH/CFG - top\n\nOwner: Kikisk234"
+        info.Text = "Mops Hub v10.7\n\nRS - menu\nM - button\nCH/CFG - top\n\nOwner: Kikisk234"
         info.TextColor3 = THEME.TextDim
         info.TextSize = 11
         info.TextWrapped = true
@@ -1322,4 +1301,4 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("[Mops Hub v10.6] Loaded.")
+print("[Mops Hub v10.7] Loaded.")
