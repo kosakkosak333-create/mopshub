@@ -1,0 +1,1 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/kosakkosak333/MopsHub/main/MopsHub.lua"))()
