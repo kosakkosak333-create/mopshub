@@ -1,7 +1,6 @@
 --=========================================================
---  MOPS HUB v6.5 | Pastebin-админка + все функции
---  RIGHT SHIFT или 🐶 — открыть
---  Pastebin тех.работы: https://pastebin.com/Mj77ghwX
+--  MOPS HUB v6.6 | Aventum-Style UI
+--  Search + Красивое меню
 --=========================================================
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
@@ -17,9 +16,9 @@ local PASTEBIN_RAW = "https://pastebin.com/raw/Mj77ghwX"
 local CHECK_INTERVAL = 15
 
 local THEME = {
-    Background  = Color3.fromRGB(22, 22, 30),
-    Sidebar     = Color3.fromRGB(16, 16, 24),
-    Card        = Color3.fromRGB(30, 30, 42),
+    Background  = Color3.fromRGB(20, 20, 28),
+    Sidebar     = Color3.fromRGB(14, 14, 20),
+    Card        = Color3.fromRGB(28, 28, 40),
     Accent      = Color3.fromRGB(140, 110, 255),
     AccentLight = Color3.fromRGB(170, 140, 255),
     AccentDim   = Color3.fromRGB(85, 65, 190),
@@ -27,14 +26,12 @@ local THEME = {
     TextDim     = Color3.fromRGB(150, 150, 170),
     TextFaint   = Color3.fromRGB(95, 95, 115),
     Border      = Color3.fromRGB(50, 50, 68),
-    BorderLight = Color3.fromRGB(70, 70, 95),
     Danger      = Color3.fromRGB(230, 70, 90),
     Success     = Color3.fromRGB(90, 220, 130),
 }
 
 local ALL_CONNECTIONS = {}
 local function track(conn) table.insert(ALL_CONNECTIONS, conn) return conn end
-
 local STATE = { Maintenance = false }
 
 local CONFIG = {
@@ -52,7 +49,8 @@ local CONFIG = {
     AntiAfk = false,
 }
 local conns = {}
-local screenGui, main, openBtn, bindsPanel, hud
+local screenGui, main, openBtn, hud
+local allCards = {}
 
 --==================== ТЕХ РАБОТЫ ====================
 local maintenanceBanner = nil
@@ -115,13 +113,11 @@ local function applyMaintenance(state)
         createMaintenanceBanner()
         if main then main.Visible = false end
         if openBtn then openBtn.Visible = false end
-        if bindsPanel then bindsPanel.Visible = false end
         if hud then hud.Visible = false end
     else
         removeMaintenanceBanner()
         if openBtn then openBtn.Visible = true end
         if hud then hud.Visible = true end
-        if bindsPanel then bindsPanel.Visible = true end
     end
 end
 
@@ -163,24 +159,20 @@ local function fling(targetChar)
         part.CFrame = hrp.CFrame * CFrame.new(0, 3, 0)
         part.Parent = workspace
         local weld = Instance.new("Weld")
-        weld.Part0 = hrp
-        weld.Part1 = part
+        weld.Part0 = hrp weld.Part1 = part
         weld.C0 = CFrame.new(0, 3, 0)
         weld.Parent = part
         local rv = Instance.new("BodyAngularVelocity")
         rv.AngularVelocity = Vector3.new(999999, 999999, 999999)
         rv.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-        rv.P = 999999
-        rv.Parent = part
+        rv.P = 999999 rv.Parent = part
         local bv = Instance.new("BodyVelocity")
         bv.Velocity = Vector3.new(0, 999999, 0)
         bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
         bv.Parent = part
-        task.delay(0.8, function()
-            pcall(function()
-                rv:Destroy() bv:Destroy() weld:Destroy() part:Destroy()
-            end)
-        end)
+        task.delay(0.8, function() pcall(function()
+            rv:Destroy() bv:Destroy() weld:Destroy() part:Destroy()
+        end) end)
     end)
     return true
 end
@@ -276,9 +268,7 @@ local function startAutoFarm()
     end)
     track(conns.farm)
 end
-local function stopAutoFarm()
-    if conns.farm then conns.farm:Disconnect() conns.farm = nil end
-end
+local function stopAutoFarm() if conns.farm then conns.farm:Disconnect() conns.farm = nil end end
 
 local function startAutoRebirth()
     if conns.rebirth then pcall(function() task.cancel(conns.rebirth) end) end
@@ -300,9 +290,7 @@ local function startAutoRebirth()
         end
     end)
 end
-local function stopAutoRebirth()
-    if conns.rebirth then pcall(function() task.cancel(conns.rebirth) end) conns.rebirth = nil end
-end
+local function stopAutoRebirth() if conns.rebirth then pcall(function() task.cancel(conns.rebirth) end) conns.rebirth = nil end end
 
 local function startFlingLoop()
     if conns.fling then conns.fling:Disconnect() end
@@ -536,6 +524,7 @@ local blur = Instance.new("BlurEffect")
 blur.Size = 0
 blur.Parent = Lighting
 
+-- 🌊 HUD (ватермарка) — остаётся сверху по центру
 hud = Instance.new("Frame")
 hud.AnchorPoint = Vector2.new(0.5, 0)
 hud.Position = UDim2.new(0.5, 0, 0, 12)
@@ -546,7 +535,7 @@ hud.BorderSizePixel = 0
 hud.ZIndex = 10
 hud.Parent = screenGui
 Instance.new("UICorner", hud).CornerRadius = UDim.new(0, 8)
-local hudStroke = Instance.new("UIStroke", hud) hudStroke.Color = THEME.BorderLight hudStroke.Thickness = 1 hudStroke.Transparency = 0.3
+local hudStroke = Instance.new("UIStroke", hud) hudStroke.Color = THEME.Border hudStroke.Thickness = 1 hudStroke.Transparency = 0.3
 
 local hudDot = Instance.new("Frame", hud)
 hudDot.Size = UDim2.new(0, 6, 0, 6)
@@ -570,7 +559,7 @@ hudVer.Size = UDim2.new(0, 40, 1, 0)
 hudVer.Position = UDim2.new(0, 92, 0, 0)
 hudVer.BackgroundTransparency = 1
 hudVer.Font = Enum.Font.Gotham
-hudVer.Text = "v6.5"
+hudVer.Text = "v6.6"
 hudVer.TextColor3 = THEME.TextDim
 hudVer.TextSize = 10
 hudVer.TextXAlignment = Enum.TextXAlignment.Left
@@ -605,6 +594,7 @@ track(RunService.RenderStepped:Connect(function()
     end
 end))
 
+-- Плавающая кнопка
 openBtn = Instance.new("TextButton")
 openBtn.Size = UDim2.new(0, 58, 0, 58)
 openBtn.Position = UDim2.new(0, 20, 0.5, -29)
@@ -622,6 +612,7 @@ openBtn.Parent = screenGui
 Instance.new("UICorner", openBtn).CornerRadius = UDim.new(1, 0)
 local obStroke = Instance.new("UIStroke", openBtn) obStroke.Color = THEME.Accent obStroke.Thickness = 2
 
+-- Главное окно
 main = Instance.new("Frame")
 main.Size = UDim2.new(0, 880, 0, 560)
 main.Position = UDim2.new(0.5, -440, 0.5, -280)
@@ -634,41 +625,74 @@ main.Visible = false
 main.ClipsDescendants = true
 main.Parent = screenGui
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 14)
-local mainStroke = Instance.new("UIStroke", main) mainStroke.Color = THEME.BorderLight mainStroke.Thickness = 1 mainStroke.Transparency = 0.3
+local mainStroke = Instance.new("UIStroke", main) mainStroke.Color = THEME.Border mainStroke.Thickness = 1 mainStroke.Transparency = 0.3
 
+-- Верхняя панель с лого и поиском
 local header = Instance.new("Frame", main)
-header.Size = UDim2.new(1, 0, 0, 56)
+header.Size = UDim2.new(1, 0, 0, 60)
 header.BackgroundColor3 = THEME.Sidebar
 header.BackgroundTransparency = 0.2
 header.BorderSizePixel = 0
 
 local logoLbl = Instance.new("TextLabel", header)
-logoLbl.Size = UDim2.new(1, -200, 0, 30)
-logoLbl.Position = UDim2.new(0, 24, 0, 12)
+logoLbl.Size = UDim2.new(0, 120, 0, 30)
+logoLbl.Position = UDim2.new(0, 24, 0, 8)
 logoLbl.BackgroundTransparency = 1
 logoLbl.Font = Enum.Font.GothamBlack
 logoLbl.Text = "MOPS HUB"
 logoLbl.TextColor3 = THEME.Text
-logoLbl.TextSize = 20
+logoLbl.TextSize = 18
 logoLbl.TextXAlignment = Enum.TextXAlignment.Left
 
 local verLbl = Instance.new("TextLabel", header)
-verLbl.Size = UDim2.new(1, -200, 0, 14)
-verLbl.Position = UDim2.new(0, 24, 0, 36)
+verLbl.Size = UDim2.new(0, 120, 0, 14)
+verLbl.Position = UDim2.new(0, 24, 0, 32)
 verLbl.BackgroundTransparency = 1
 verLbl.Font = Enum.Font.Gotham
-verLbl.Text = "v6.5 | admin panel"
+verLbl.Text = "v6.6 | admin panel"
 verLbl.TextColor3 = THEME.TextDim
 verLbl.TextSize = 9
 verLbl.TextXAlignment = Enum.TextXAlignment.Left
 
+-- Поиск
+local searchBox = Instance.new("Frame", header)
+searchBox.Size = UDim2.new(0, 320, 0, 32)
+searchBox.Position = UDim2.new(0.5, -160, 0.5, -16)
+searchBox.BackgroundColor3 = THEME.Background
+searchBox.BackgroundTransparency = 0.4
+searchBox.BorderSizePixel = 0
+Instance.new("UICorner", searchBox).CornerRadius = UDim.new(0, 8)
+
+local searchIcon = Instance.new("TextLabel", searchBox)
+searchIcon.Size = UDim2.new(0, 22, 1, 0)
+searchIcon.Position = UDim2.new(0, 8, 0, 0)
+searchIcon.BackgroundTransparency = 1
+searchIcon.Font = Enum.Font.Gotham
+searchIcon.Text = "S"
+searchIcon.TextColor3 = THEME.TextDim
+searchIcon.TextSize = 12
+
+local searchInput = Instance.new("TextBox", searchBox)
+searchInput.Size = UDim2.new(1, -35, 1, 0)
+searchInput.Position = UDim2.new(0, 30, 0, 0)
+searchInput.BackgroundTransparency = 1
+searchInput.Font = Enum.Font.Gotham
+searchInput.PlaceholderText = "Search features..."
+searchInput.PlaceholderColor3 = THEME.TextDim
+searchInput.Text = ""
+searchInput.TextColor3 = THEME.Text
+searchInput.TextSize = 12
+searchInput.TextXAlignment = Enum.TextXAlignment.Left
+searchInput.ClearTextOnFocus = false
+
+-- 2 кнопки справа
 local shutdownBtn = Instance.new("TextButton", header)
 shutdownBtn.Size = UDim2.new(0, 30, 0, 30)
-shutdownBtn.Position = UDim2.new(1, -110, 0.5, -15)
+shutdownBtn.Position = UDim2.new(1, -80, 0.5, -15)
 shutdownBtn.BackgroundColor3 = THEME.Danger
 shutdownBtn.Text = "X"
 shutdownBtn.Font = Enum.Font.GothamBold
-shutdownBtn.TextSize = 14
+shutdownBtn.TextSize = 13
 shutdownBtn.TextColor3 = Color3.new(1,1,1)
 shutdownBtn.BorderSizePixel = 0
 Instance.new("UICorner", shutdownBtn).CornerRadius = UDim.new(1, 0)
@@ -679,14 +703,15 @@ closeBtn.Position = UDim2.new(1, -40, 0.5, -15)
 closeBtn.BackgroundColor3 = Color3.fromRGB(240, 240, 245)
 closeBtn.Text = "X"
 closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 16
+closeBtn.TextSize = 13
 closeBtn.TextColor3 = Color3.fromRGB(30, 30, 40)
 closeBtn.BorderSizePixel = 0
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(1, 0)
 
+-- Sidebar снизу вверх
 local tabBar = Instance.new("Frame", main)
-tabBar.Size = UDim2.new(0, 180, 1, -72)
-tabBar.Position = UDim2.new(0, 14, 0, 66)
+tabBar.Size = UDim2.new(0, 180, 1, -80)
+tabBar.Position = UDim2.new(0, 14, 0, 70)
 tabBar.BackgroundColor3 = THEME.Sidebar
 tabBar.BackgroundTransparency = 0.2
 tabBar.BorderSizePixel = 0
@@ -694,14 +719,55 @@ Instance.new("UICorner", tabBar).CornerRadius = UDim.new(0, 10)
 
 local tabLayout = Instance.new("UIListLayout", tabBar)
 tabLayout.Padding = UDim.new(0, 4)
+tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tabLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
 local tabPad = Instance.new("UIPadding", tabBar)
-tabPad.PaddingTop = UDim.new(0, 8)
+tabPad.PaddingBottom = UDim.new(0, 8)
 tabPad.PaddingLeft = UDim.new(0, 8)
 tabPad.PaddingRight = UDim.new(0, 8)
 
+-- Логотип MOPS внизу слева (как в Aventum)
+local botLogo = Instance.new("Frame", tabBar)
+botLogo.Size = UDim2.new(1, 0, 0, 50)
+botLogo.BackgroundColor3 = THEME.Background
+botLogo.BackgroundTransparency = 0.3
+botLogo.BorderSizePixel = 0
+botLogo.LayoutOrder = 100
+Instance.new("UICorner", botLogo).CornerRadius = UDim.new(0, 8)
+
+local botLogoIcon = Instance.new("TextLabel", botLogo)
+botLogoIcon.Size = UDim2.new(0, 24, 0, 24)
+botLogoIcon.Position = UDim2.new(0, 10, 0, 8)
+botLogoIcon.BackgroundTransparency = 1
+botLogoIcon.Font = Enum.Font.GothamBold
+botLogoIcon.Text = "🐶"
+botLogoIcon.TextSize = 18
+botLogoIcon.TextColor3 = THEME.Text
+
+local botLogoTitle = Instance.new("TextLabel", botLogo)
+botLogoTitle.Size = UDim2.new(1, -40, 0, 16)
+botLogoTitle.Position = UDim2.new(0, 38, 0, 10)
+botLogoTitle.BackgroundTransparency = 1
+botLogoTitle.Font = Enum.Font.GothamBold
+botLogoTitle.Text = "MOPS"
+botLogoTitle.TextColor3 = THEME.Text
+botLogoTitle.TextSize = 12
+botLogoTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+local botLogoSub = Instance.new("TextLabel", botLogo)
+botLogoSub.Size = UDim2.new(1, -40, 0, 12)
+botLogoSub.Position = UDim2.new(0, 38, 0, 26)
+botLogoSub.BackgroundTransparency = 1
+botLogoSub.Font = Enum.Font.Gotham
+botLogoSub.Text = "Lifetime"
+botLogoSub.TextColor3 = THEME.TextDim
+botLogoSub.TextSize = 9
+botLogoSub.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Content
 local content = Instance.new("Frame", main)
-content.Size = UDim2.new(1, -215, 1, -72)
-content.Position = UDim2.new(0, 200, 0, 66)
+content.Size = UDim2.new(1, -215, 1, -80)
+content.Position = UDim2.new(0, 200, 0, 70)
 content.BackgroundTransparency = 1
 content.BorderSizePixel = 0
 
@@ -748,7 +814,15 @@ end
 
 openBtn.MouseButton1Click:Connect(function() setMenuVisible(true) end)
 closeBtn.MouseButton1Click:Connect(function() setMenuVisible(false) end)
+shutdownBtn.MouseButton1Click:Connect(function()
+    for _, conn in pairs(conns) do pcall(function() conn:Disconnect() end) end
+    for _, conn in ipairs(ALL_CONNECTIONS) do pcall(function() conn:Disconnect() end) end
+    pcall(function() screenGui:Destroy() end)
+    pcall(function() blur:Destroy() end)
+    print("[Mops Hub] Скрипт выключен.")
+end)
 
+--==================== UI Компоненты ====================
 local function makeCard(title, order)
     local card = Instance.new("Frame", contentScroll)
     card.Size = UDim2.new(0, 330, 0, 210)
@@ -757,8 +831,9 @@ local function makeCard(title, order)
     card.BorderSizePixel = 0
     card.LayoutOrder = order or 0
     card:SetAttribute("isCard", true)
+    card:SetAttribute("cardTitle", title)
     Instance.new("UICorner", card).CornerRadius = UDim.new(0, 12)
-    local cs = Instance.new("UIStroke", card) cs.Color = THEME.BorderLight cs.Thickness = 1 cs.Transparency = 0.4
+    local cs = Instance.new("UIStroke", card) cs.Color = THEME.Border cs.Thickness = 1 cs.Transparency = 0.4
 
     local h = Instance.new("TextLabel", card)
     h.Size = UDim2.new(1, -24, 0, 24)
@@ -769,6 +844,7 @@ local function makeCard(title, order)
     h.TextColor3 = THEME.Text
     h.TextSize = 13
     h.TextXAlignment = Enum.TextXAlignment.Left
+    table.insert(allCards, card)
     return card
 end
 
@@ -875,20 +951,13 @@ local function addSlider(card, y, label, min, max, default, cb)
     end
 
     bar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            update(input)
-        end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true update(input) end
     end)
     UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            update(input)
-        end
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then update(input) end
     end)
     UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
     end)
 end
 
@@ -920,9 +989,7 @@ local function addDropdown(card, y, label, options, default, cb)
     Instance.new("UICorner", dropBtn).CornerRadius = UDim.new(0, 6)
 
     local idx = 1
-    for i, o in ipairs(options) do
-        if o == default then idx = i break end
-    end
+    for i, o in ipairs(options) do if o == default then idx = i break end end
 
     dropBtn.MouseButton1Click:Connect(function()
         idx = idx % #options + 1
@@ -931,13 +998,12 @@ local function addDropdown(card, y, label, options, default, cb)
     end)
 end
 
+--==================== РЕБИЛД ====================
 local currentTab = "combat"
-
 local function rebuildContent()
+    allCards = {}
     for _, c in ipairs(contentScroll:GetChildren()) do
-        if c:IsA("Frame") and c:GetAttribute("isCard") then
-            c:Destroy()
-        end
+        if c:IsA("Frame") and c:GetAttribute("isCard") then c:Destroy() end
     end
 
     if currentTab == "combat" then
@@ -1028,28 +1094,10 @@ local function rebuildContent()
         local c2 = makeCard("HUD", 2)
         addToggle(c2, 56, "Watermark", true, function(s) hud.Visible = s end)
         addToggle(c2, 90, "Show FPS", true, function(s) hudFps.Visible = s end)
-
-        local c3 = makeCard("Script", 3)
-        local shutdownBig = Instance.new("TextButton", c3)
-        shutdownBig.Size = UDim2.new(1, -28, 0, 40)
-        shutdownBig.Position = UDim2.new(0, 14, 0, 56)
-        shutdownBig.BackgroundColor3 = THEME.Danger
-        shutdownBig.Text = "ВЫКЛЮЧИТЬ СКРИПТ"
-        shutdownBig.Font = Enum.Font.GothamBold
-        shutdownBig.TextSize = 12
-        shutdownBig.TextColor3 = Color3.new(1,1,1)
-        shutdownBig.BorderSizePixel = 0
-        Instance.new("UICorner", shutdownBig).CornerRadius = UDim.new(0, 8)
-        shutdownBig.MouseButton1Click:Connect(function()
-            for _, conn in pairs(conns) do pcall(function() conn:Disconnect() end) end
-            for _, conn in ipairs(ALL_CONNECTIONS) do pcall(function() conn:Disconnect() end) end
-            pcall(function() screenGui:Destroy() end)
-            pcall(function() blur:Destroy() end)
-            print("[Mops Hub] Скрипт выключен.")
-        end)
     end
 end
 
+--==================== SIDEBAR ====================
 local sidebarButtons = {}
 local function makeTab(id, icon, label)
     local btn = Instance.new("TextButton", tabBar)
@@ -1059,11 +1107,12 @@ local function makeTab(id, icon, label)
     btn.Text = ""
     btn.BorderSizePixel = 0
     btn.AutoButtonColor = false
+    btn.LayoutOrder = #sidebarButtons + 1
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
 
     local iL = Instance.new("TextLabel", btn)
     iL.Size = UDim2.new(0, 20, 1, 0)
-    iL.Position = UDim2.new(0, 14, 0, 0)
+    iL.Position = UDim2.new(0, 12, 0, 0)
     iL.BackgroundTransparency = 1
     iL.Font = Enum.Font.GothamBold
     iL.Text = icon
@@ -1071,8 +1120,8 @@ local function makeTab(id, icon, label)
     iL.TextSize = 13
 
     local nL = Instance.new("TextLabel", btn)
-    nL.Size = UDim2.new(1, -44, 1, 0)
-    nL.Position = UDim2.new(0, 40, 0, 0)
+    nL.Size = UDim2.new(1, -40, 1, 0)
+    nL.Position = UDim2.new(0, 38, 0, 0)
     nL.BackgroundTransparency = 1
     nL.Font = Enum.Font.GothamMedium
     nL.Text = label
@@ -1101,10 +1150,10 @@ local function makeTab(id, icon, label)
     end)
 end
 
-makeTab("combat", "C", "Combat")
-makeTab("movement", "M", "Movement")
-makeTab("render", "R", "Render")
 makeTab("misc", "M", "Misc")
+makeTab("render", "R", "Render")
+makeTab("movement", "M", "Movement")
+makeTab("combat", "C", "Combat")
 
 sidebarButtons["combat"].button.BackgroundColor3 = THEME.AccentDim
 sidebarButtons["combat"].button.BackgroundTransparency = 0.1
@@ -1112,14 +1161,16 @@ sidebarButtons["combat"].icon.TextColor3 = Color3.new(1,1,1)
 sidebarButtons["combat"].label.TextColor3 = Color3.new(1,1,1)
 rebuildContent()
 
-shutdownBtn.MouseButton1Click:Connect(function()
-    for _, conn in pairs(conns) do pcall(function() conn:Disconnect() end) end
-    for _, conn in ipairs(ALL_CONNECTIONS) do pcall(function() conn:Disconnect() end) end
-    pcall(function() screenGui:Destroy() end)
-    pcall(function() blur:Destroy() end)
-    print("[Mops Hub] Скрипт выключен.")
+--==================== SEARCH ====================
+searchInput:GetPropertyChangedSignal("Text"):Connect(function()
+    local q = searchInput.Text:lower()
+    for _, card in ipairs(allCards) do
+        local title = card:GetAttribute("cardTitle") or ""
+        card.Visible = q == "" or title:lower():find(q) ~= nil
+    end
 end)
 
+--==================== RIGHT SHIFT ====================
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.RightShift then
@@ -1127,4 +1178,4 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("[Mops Hub v6.5] Загружен. RIGHT SHIFT — открыть.")
+print("[Mops Hub v6.6] Загружен. RIGHT SHIFT — открыть.")
