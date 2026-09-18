@@ -928,8 +928,7 @@ local function executeBind(id)
     for _, f in ipairs(BIND_FUNCS) do
         if f.id == id then pcall(f.toggle) return end
     end
-end
--- GUI
+end-- GUI
 screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MopsHub"
 screenGui.ResetOnSpawn = false
