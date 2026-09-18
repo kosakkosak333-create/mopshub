@@ -1,6 +1,7 @@
 --=========================================================
---  MOPS HUB v9.1 | Chat + Roles + Owner + Config + Keys
---  RIGHT SHIFT или 🐶 — открыть
+--  MOPS HUB v9.2 | Chat + Roles + Owner + Config + Keys
+--  RIGHT SHIFT ili [DOG] - otkryt
+--  Bez XOR, bez emoji v kode (dlya lyubogo executor)
 --=========================================================
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
@@ -12,7 +13,7 @@ local HttpService      = game:GetService("HttpService")
 local Lighting         = game:GetService("Lighting")
 local LocalPlayer      = Players.LocalPlayer
 
---==================== КОНФИГ ====================
+--==================== KONFIG ====================
 local CHAT_BIN_ID  = "6aad8f9eac6210605add8f0e"
 local CHAT_API_KEY = "$2a$10$vZdDG8nnlVaB49BU4pgVXuewjJqoiwTtYyjdE5tZ6tKh.HyOFKXAK"
 local CHAT_READ_INTERVAL = 6
@@ -24,17 +25,28 @@ local ROLE_FILE = "MopsHub_Role.txt"
 local CONFIG_FOLDER = "MopsHub/Configs"
 local KEY_PREFIX = "MOPS-"
 
---==================== ШИФРОВКА ПАРОЛЯ ====================
-local _XOR_KEY = 47
-local _ENCRYPTED_PASS = "644644465C441D1C1B"
+--==================== SHIFROVKA PAROLYA (b64) ====================
+-- Kikisk234 v base64
+local _ENCODED_PASS = "S2lzaXNrMjM0"
+
+local function _b64decode(data)
+    local b64table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    data = string.gsub(data, '[^' .. b64table .. '=]', '')
+    return (data:gsub('.', function(x)
+        if x == '=' then return '' end
+        local r, f = '', (b64table:find(x) - 1)
+        for i = 6, 1, -1 do r = r .. (f % 2 ^ i - f % 2 ^ (i - 1) > 0 and '1' or '0') end
+        return r
+    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+        if #x ~= 8 then return '' end
+        local c = 0
+        for i = 1, 8 do c = c + (x:sub(i, i) == '1' and 2 ^ (8 - i) or 0) end
+        return string.char(c)
+    end))
+end
 
 local function _decodePass()
-    local out = {}
-    for i = 1, #_ENCRYPTED_PASS, 2 do
-        local hex = _ENCRYPTED_PASS:sub(i, i+1)
-        table.insert(out, string.char(tonumber(hex, 16) ~ _XOR_KEY))
-    end
-    return table.concat(out)
+    return _b64decode(_ENCODED_PASS)
 end
 
 local function checkPassword(input)
@@ -42,7 +54,7 @@ local function checkPassword(input)
     return input == _decodePass()
 end
 
---==================== ТЕМА ====================
+--==================== TEMA ====================
 local THEME = {
     Background  = Color3.fromRGB(22, 22, 30),
     Sidebar     = Color3.fromRGB(16, 16, 24),
@@ -71,9 +83,14 @@ local ROLE_COLORS = {
     Free      = Color3.fromRGB(180, 180, 200),
     User      = Color3.fromRGB(200, 200, 220),
 }
+-- Ikonki (tekstovye, bez emoji v kode)
 local ROLE_ICONS = {
-    Owner = "👑", Mops = "🐶", Premium = "💎",
-    Moderator = "🛡", VIP = "⭐", Free = "👤", User = "👤",
+    Owner = "OWN", Mops = "MOPS", Premium = "PRM",
+    Moderator = "MOD", VIP = "VIP", Free = "FREE", User = "USER",
+}
+local ROLE_EMOJI = {
+    Owner = "[OWNER]", Mops = "[MOPS]", Premium = "[PREMIUM]",
+    Moderator = "[MOD]", VIP = "[VIP]", Free = "[FREE]", User = "[USER]",
 }
 
 local ALL_CONNECTIONS = {}
@@ -100,7 +117,7 @@ local conns = {}
 local screenGui, main, openBtn, hud, contentScroll, hudRole
 local allCards = {}
 
---==================== РОЛЬ / OWNER ====================
+--==================== ROL / OWNER ====================
 local myRole = "Free"
 local isOwner = false
 local ownerPasswordUsed = false
@@ -149,7 +166,7 @@ local function httpPut(url, body, headers)
     end
 end
 
---==================== ОБЛАКО (jsonbin) — ОПРЕДЕЛЯЕМ ПЕРВЫМИ ====================
+--==================== OBLAKO (jsonbin) ====================
 local function _fetchBin()
     local raw = httpGet(CHAT_URL .. "/latest", {["X-Master-Key"] = CHAT_API_KEY})
     if not raw then return nil end
@@ -225,7 +242,7 @@ local function sendHeartbeat()
     end)
 end
 
---==================== СИСТЕМА КОНФИГОВ ====================
+--==================== KONFIGI ====================
 local function hasFileAPI()
     return writefile and readfile and isfile and listfiles and delfile and makefolder
 end
@@ -239,7 +256,7 @@ local function ensureFolder()
 end
 
 local function saveLocalConfig(name)
-    if not hasFileAPI() then return false, "Executor без файлов" end
+    if not hasFileAPI() then return false, "Executor bez failov" end
     ensureFolder()
     local data = {}
     for k, v in pairs(CONFIG) do
@@ -253,14 +270,14 @@ local function saveLocalConfig(name)
 end
 
 local function loadLocalConfig(name)
-    if not hasFileAPI() then return false, "Executor без файлов" end
+    if not hasFileAPI() then return false, "Executor bez failov" end
     local path = CONFIG_FOLDER .. "/" .. name .. ".json"
-    if not isfile(path) then return false, "Не найден" end
+    if not isfile(path) then return false, "Ne najden" end
     local ok, content = pcall(function() return readfile(path) end)
-    if not ok then return false, "Ошибка чтения" end
+    if not ok then return false, "Oshibka chteniya" end
     local decoded
     pcall(function() decoded = HttpService:JSONDecode(content) end)
-    if type(decoded) ~= "table" then return false, "Ошибка формата" end
+    if type(decoded) ~= "table" then return false, "Oshibka formata" end
     for k, v in pairs(decoded) do
         if CONFIG[k] ~= nil then CONFIG[k] = v end
     end
@@ -330,16 +347,16 @@ local function generateKey()
 end
 
 local function activateKey(key)
-    if not key or #key < 8 then return false, "Ключ слишком короткий" end
+    if not key or #key < 8 then return false, "Klyuch slishkom korotkij" end
     key = key:gsub("%s", "")
     if key:sub(1, #KEY_PREFIX) == KEY_PREFIX then
         key = key:sub(#KEY_PREFIX + 1)
     end
     local ok, json = pcall(function() return base64Decode(key) end)
-    if not ok or not json or json == "" then return false, "Ошибка декодирования" end
+    if not ok or not json or json == "" then return false, "Oshibka dekodirovaniya" end
     local data
     pcall(function() data = HttpService:JSONDecode(json) end)
-    if type(data) ~= "table" then return false, "Неверный формат ключа" end
+    if type(data) ~= "table" then return false, "Nevernyj format klyucha" end
     local applied = 0
     for k, v in pairs(data) do
         if CONFIG[k] ~= nil then
@@ -347,7 +364,7 @@ local function activateKey(key)
             applied = applied + 1
         end
     end
-    if applied == 0 then return false, "В ключе нет известных настроек" end
+    if applied == 0 then return false, "V klyuche net izvestnyh nastroek" end
     return true, applied
 end
 
@@ -359,7 +376,7 @@ local function copyToClipboard(text)
     return false
 end
 
---==================== ОКНО ВВОДА ПАРОЛЯ OWNER ====================
+--==================== PROMPT OWNER ====================
 function showOwnerPasswordPrompt(onComplete)
     if isOwner then
         if onComplete then onComplete(true) end
@@ -369,7 +386,10 @@ function showOwnerPasswordPrompt(onComplete)
     local promptGui = Instance.new("ScreenGui")
     promptGui.Name = "MopsOwnerPrompt"
     promptGui.ResetOnSpawn = false
-    promptGui.Parent = game:GetService("CoreGui")
+    pcall(function() promptGui.Parent = game:GetService("CoreGui") end)
+    if not promptGui.Parent then
+        promptGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
 
     local bg = Instance.new("Frame", promptGui)
     bg.Size = UDim2.new(1, 0, 1, 0)
@@ -391,7 +411,7 @@ function showOwnerPasswordPrompt(onComplete)
     title.Position = UDim2.new(0, 20, 0, 20)
     title.BackgroundTransparency = 1
     title.Font = Enum.Font.GothamBlack
-    title.Text = "👑 ВХОД В OWNER"
+    title.Text = "VHOD V OWNER"
     title.TextColor3 = THEME.Gold
     title.TextSize = 20
     title.TextXAlignment = Enum.TextXAlignment.Center
@@ -401,7 +421,7 @@ function showOwnerPasswordPrompt(onComplete)
     sub.Position = UDim2.new(0, 20, 0, 54)
     sub.BackgroundTransparency = 1
     sub.Font = Enum.Font.Gotham
-    sub.Text = "Введи пароль владельца"
+    sub.Text = "Vvedi parol vladeltsa"
     sub.TextColor3 = THEME.TextDim
     sub.TextSize = 11
     sub.TextXAlignment = Enum.TextXAlignment.Center
@@ -411,7 +431,7 @@ function showOwnerPasswordPrompt(onComplete)
     passBox.Position = UDim2.new(0, 20, 0, 92)
     passBox.BackgroundColor3 = THEME.Card
     passBox.BorderSizePixel = 0
-    passBox.PlaceholderText = "Пароль..."
+    passBox.PlaceholderText = "Parol..."
     passBox.Text = ""
     passBox.TextColor3 = THEME.Text
     passBox.PlaceholderColor3 = THEME.TextDim
@@ -434,7 +454,7 @@ function showOwnerPasswordPrompt(onComplete)
     confirmBtn.Position = UDim2.new(0, 20, 0, 162)
     confirmBtn.BackgroundColor3 = THEME.Gold
     confirmBtn.BorderSizePixel = 0
-    confirmBtn.Text = "🔓 ПОДТВЕРДИТЬ"
+    confirmBtn.Text = "PODTVERDIT"
     confirmBtn.Font = Enum.Font.GothamBold
     confirmBtn.TextSize = 13
     confirmBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
@@ -444,7 +464,7 @@ function showOwnerPasswordPrompt(onComplete)
     cancelBtn.Size = UDim2.new(0, 80, 0, 22)
     cancelBtn.Position = UDim2.new(0.5, -40, 1, -28)
     cancelBtn.BackgroundTransparency = 1
-    cancelBtn.Text = "Отмена"
+    cancelBtn.Text = "Otmema"
     cancelBtn.Font = Enum.Font.Gotham
     cancelBtn.TextSize = 11
     cancelBtn.TextColor3 = THEME.TextFaint
@@ -467,18 +487,18 @@ function showOwnerPasswordPrompt(onComplete)
             task.spawn(function() setCloudOwnerFlag(LocalPlayer.Name) end)
 
             statusLbl.TextColor3 = THEME.Success
-            statusLbl.Text = "✅ Успешно!"
+            statusLbl.Text = "Uspehno!"
             task.wait(0.6)
             promptGui:Destroy()
             if onComplete then onComplete(true) end
             pcall(function()
                 game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "MOPS HUB", Text = "👑 Owner активирован!", Duration = 4,
+                    Title = "MOPS HUB", Text = "Owner aktivirovan!", Duration = 4,
                 })
             end)
         else
             statusLbl.TextColor3 = THEME.Danger
-            statusLbl.Text = "❌ Неверный пароль"
+            statusLbl.Text = "Nevernyj parol"
             passBox.Text = ""
         end
     end
@@ -493,13 +513,16 @@ function showOwnerPasswordPrompt(onComplete)
     end)
 end
 
---==================== ВЫБОР РОЛИ ПРИ СТАРТЕ ====================
+--==================== VYBOR ROLI ====================
 local function showRoleSelection(onDone)
     local selGui = Instance.new("ScreenGui")
     selGui.Name = "MopsRoleSelect"
     selGui.ResetOnSpawn = false
     selGui.IgnoreGuiInset = true
-    selGui.Parent = game:GetService("CoreGui")
+    pcall(function() selGui.Parent = game:GetService("CoreGui") end)
+    if not selGui.Parent then
+        selGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
 
     local bg = Instance.new("Frame", selGui)
     bg.Size = UDim2.new(1, 0, 1, 0)
@@ -521,7 +544,7 @@ local function showRoleSelection(onDone)
     title.Position = UDim2.new(0, 20, 0, 20)
     title.BackgroundTransparency = 1
     title.Font = Enum.Font.GothamBlack
-    title.Text = "ВЫБЕРИ СВОЮ РОЛЬ"
+    title.Text = "VYBERI SVOYU ROL"
     title.TextColor3 = THEME.Text
     title.TextSize = 22
     title.TextXAlignment = Enum.TextXAlignment.Center
@@ -531,7 +554,7 @@ local function showRoleSelection(onDone)
     sub.Position = UDim2.new(0, 20, 0, 58)
     sub.BackgroundTransparency = 1
     sub.Font = Enum.Font.Gotham
-    sub.Text = "Значок отображается в чате MOPS HUB"
+    sub.Text = "Znachok otobrazhaetsya v chate MOPS HUB"
     sub.TextColor3 = THEME.TextDim
     sub.TextSize = 11
     sub.TextXAlignment = Enum.TextXAlignment.Center
@@ -550,17 +573,17 @@ local function showRoleSelection(onDone)
         bs.Color = color bs.Thickness = 1.5 bs.Transparency = 0.5
 
         local ic = Instance.new("TextLabel", btn)
-        ic.Size = UDim2.new(0, 50, 1, 0)
+        ic.Size = UDim2.new(0, 70, 1, 0)
         ic.Position = UDim2.new(0, 10, 0, 0)
         ic.BackgroundTransparency = 1
         ic.Font = Enum.Font.GothamBold
         ic.Text = icon
         ic.TextColor3 = color
-        ic.TextSize = 28
+        ic.TextSize = 14
 
         local nm = Instance.new("TextLabel", btn)
-        nm.Size = UDim2.new(1, -140, 0, 26)
-        nm.Position = UDim2.new(0, 70, 0, 10)
+        nm.Size = UDim2.new(1, -160, 0, 26)
+        nm.Position = UDim2.new(0, 90, 0, 10)
         nm.BackgroundTransparency = 1
         nm.Font = Enum.Font.GothamBold
         nm.Text = role
@@ -569,8 +592,8 @@ local function showRoleSelection(onDone)
         nm.TextXAlignment = Enum.TextXAlignment.Left
 
         local ds = Instance.new("TextLabel", btn)
-        ds.Size = UDim2.new(1, -140, 0, 20)
-        ds.Position = UDim2.new(0, 70, 0, 36)
+        ds.Size = UDim2.new(1, -160, 0, 20)
+        ds.Position = UDim2.new(0, 90, 0, 36)
         ds.BackgroundTransparency = 1
         ds.Font = Enum.Font.Gotham
         ds.Text = desc
@@ -608,7 +631,7 @@ local function showRoleSelection(onDone)
                 pcall(function()
                     game:GetService("StarterGui"):SetCore("SendNotification", {
                         Title = "MOPS HUB",
-                        Text = "Роль: " .. role,
+                        Text = "Rol: " .. role,
                         Duration = 3,
                     })
                 end)
@@ -616,23 +639,23 @@ local function showRoleSelection(onDone)
         end)
     end
 
-    makeRoleBtn(90,  "Free",    "Базовый доступ ко всем функциям", ROLE_COLORS.Free,    ROLE_ICONS.Free,    false)
-    makeRoleBtn(166, "Premium", "Значок 💎 в чате MOPS",          ROLE_COLORS.Premium, ROLE_ICONS.Premium, false)
-    makeRoleBtn(242, "Mops",    "Значок 🐶 в чате MOPS",          ROLE_COLORS.Mops,    ROLE_ICONS.Mops,    false)
-    makeRoleBtn(318, "Owner",   "Требуется пароль владельца",     ROLE_COLORS.Owner,   ROLE_ICONS.Owner,   true)
+    makeRoleBtn(90,  "Free",    "Bazovyj dostup",           ROLE_COLORS.Free,    "FREE",    false)
+    makeRoleBtn(166, "Premium", "Znachok PREMIUM v chate",  ROLE_COLORS.Premium, "PREMIUM", false)
+    makeRoleBtn(242, "Mops",    "Znachok MOPS v chate",     ROLE_COLORS.Mops,    "MOPS",    false)
+    makeRoleBtn(318, "Owner",   "Trebuyetsya parol",        ROLE_COLORS.Owner,   "OWNER",   true)
 
     local warn = Instance.new("TextLabel", box)
     warn.Size = UDim2.new(1, -40, 0, 20)
     warn.Position = UDim2.new(0, 20, 1, -30)
     warn.BackgroundTransparency = 1
     warn.Font = Enum.Font.Gotham
-    warn.Text = "Роль сохраняется на устройстве"
+    warn.Text = "Rol sohranyaetsya na ustrojstve"
     warn.TextColor3 = THEME.TextFaint
     warn.TextSize = 10
     warn.TextXAlignment = Enum.TextXAlignment.Center
 end
 
---==================== ТЕХ РАБОТЫ ====================
+--==================== TEH RABOTY ====================
 local maintenanceBanner = nil
 local function createMaintenanceBanner()
     if maintenanceBanner then return end
@@ -648,7 +671,7 @@ local function createMaintenanceBanner()
     lbl.Size = UDim2.new(1, 0, 1, 0)
     lbl.BackgroundTransparency = 1
     lbl.Font = Enum.Font.GothamBlack
-    lbl.Text = "ТЕХ РАБОТЫ"
+    lbl.Text = "TEH RABOTY"
     lbl.TextColor3 = Color3.fromRGB(255, 30, 30)
     lbl.TextSize = 120
     lbl.TextStrokeTransparency = 0
@@ -667,7 +690,7 @@ local function createMaintenanceBanner()
     sub.Position = UDim2.new(0, 0, 0.5, 90)
     sub.BackgroundTransparency = 1
     sub.Font = Enum.Font.GothamBold
-    sub.Text = "Скрипт временно недоступен. Заходи позже."
+    sub.Text = "Skript vremenno nedostupen."
     sub.TextColor3 = Color3.fromRGB(255, 180, 180)
     sub.TextSize = 20
     sub.ZIndex = 1000
@@ -710,7 +733,7 @@ local function isBlocked()
     if STATE.Maintenance then
         pcall(function()
             game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "МОПС ХАБ", Text = "ТЕХ.РАБОТЫ — функции отключены", Duration = 2,
+                Title = "MOPS HUB", Text = "TEH RABOTY", Duration = 2,
             })
         end)
         return true
@@ -738,7 +761,7 @@ task.spawn(function()
     end
 end)
 
---==================== ИГРОВЫЕ ФУНКЦИИ ====================
+--==================== IGROVYE FUNKCII ====================
 local function fling(targetChar)
     if isBlocked() then return false end
     if not targetChar then return false end
@@ -1179,15 +1202,15 @@ local function applyAllFromConfig()
     applyAntiAfk(CONFIG.AntiAfk)
 end
 
---==================== ЧАТ ====================
+--==================== CHAT ====================
 local chatMessages = {}
 local chatScroll, chatInput, chatSendBtn
 
 function loadChatMessages()
     local record = _fetchBin()
-    if not record or type(record.messages) ~= "table" then 
+    if not record or type(record.messages) ~= "table" then
         chatMessages = {}
-        return 
+        return
     end
     chatMessages = {}
     for _, v in ipairs(record.messages) do
@@ -1211,7 +1234,7 @@ function renderChatMessages()
         empty.Size = UDim2.new(1, -10, 0, 30)
         empty.BackgroundTransparency = 1
         empty.Font = Enum.Font.Gotham
-        empty.Text = "— пусто —"
+        empty.Text = "- pusto -"
         empty.TextColor3 = THEME.TextFaint
         empty.TextSize = 11
         empty.TextXAlignment = Enum.TextXAlignment.Center
@@ -1223,8 +1246,8 @@ function renderChatMessages()
         lbl.AutomaticSize = Enum.AutomaticSize.Y
         lbl.BackgroundTransparency = 1
         lbl.Font = Enum.Font.Gotham
-        local icon = ROLE_ICONS[msg.role] or "👤"
-        lbl.Text = icon .. " [" .. msg.role .. "] " .. msg.name .. ": " .. msg.text
+        local icon = ROLE_EMOJI[msg.role] or "[USER]"
+        lbl.Text = icon .. " " .. msg.name .. ": " .. msg.text
         lbl.TextColor3 = ROLE_COLORS[msg.role] or ROLE_COLORS.User
         lbl.TextSize = 11
         lbl.TextWrapped = true
@@ -1241,7 +1264,7 @@ local function sendChatMessage(text)
     local entry = string.format("%s|%s|%s|%d", LocalPlayer.Name, myRole, clean, os.time())
     task.spawn(function()
         local record = _fetchBin()
-        if not record then 
+        if not record then
             record = {messages = {}}
         end
         record.messages = record.messages or {}
@@ -1259,7 +1282,7 @@ function createChatUI(parent)
     hdr.Size = UDim2.new(1, 0, 0, 24)
     hdr.BackgroundTransparency = 1
     hdr.Font = Enum.Font.GothamBold
-    hdr.Text = "ГЛОБАЛЬНЫЙ ЧАТ MOPS"
+    hdr.Text = "GLOBALNYJ CHAT MOPS"
     hdr.TextColor3 = THEME.Accent
     hdr.TextSize = 12
     hdr.TextXAlignment = Enum.TextXAlignment.Left
@@ -1269,7 +1292,7 @@ function createChatUI(parent)
     roleHdr.Size = UDim2.new(1, 0, 0, 20)
     roleHdr.BackgroundTransparency = 1
     roleHdr.Font = Enum.Font.GothamBold
-    roleHdr.Text = (ROLE_ICONS[myRole] or "👤") .. " Твоя роль: " .. myRole
+    roleHdr.Text = "Tvoya rol: " .. myRole
     roleHdr.TextColor3 = ROLE_COLORS[myRole] or ROLE_COLORS.User
     roleHdr.TextSize = 12
     roleHdr.TextXAlignment = Enum.TextXAlignment.Left
@@ -1306,7 +1329,7 @@ function createChatUI(parent)
     chatInput.BackgroundColor3 = THEME.Background
     chatInput.BackgroundTransparency = 0.4
     chatInput.Font = Enum.Font.Gotham
-    chatInput.PlaceholderText = "Сообщение... (Enter)"
+    chatInput.PlaceholderText = "Soobshenie... (Enter)"
     chatInput.PlaceholderColor3 = THEME.TextDim
     chatInput.Text = ""
     chatInput.TextColor3 = THEME.Text
@@ -1364,7 +1387,10 @@ screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MopsHub"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
-screenGui.Parent = game:GetService("CoreGui")
+pcall(function() screenGui.Parent = game:GetService("CoreGui") end)
+if not screenGui.Parent then
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
 
 local blur = Instance.new("BlurEffect")
 blur.Size = 0
@@ -1404,7 +1430,7 @@ hudVer.Size = UDim2.new(0, 40, 1, 0)
 hudVer.Position = UDim2.new(0, 92, 0, 0)
 hudVer.BackgroundTransparency = 1
 hudVer.Font = Enum.Font.Gotham
-hudVer.Text = "v9.1"
+hudVer.Text = "v9.2"
 hudVer.TextColor3 = THEME.TextDim
 hudVer.TextSize = 10
 hudVer.TextXAlignment = Enum.TextXAlignment.Left
@@ -1434,7 +1460,7 @@ hudRole.Size = UDim2.new(0, 100, 1, 0)
 hudRole.Position = UDim2.new(1, -110, 0, 0)
 hudRole.BackgroundTransparency = 1
 hudRole.Font = Enum.Font.GothamBold
-hudRole.Text = (ROLE_ICONS[myRole] or "👤") .. " " .. myRole
+hudRole.Text = myRole
 hudRole.TextColor3 = ROLE_COLORS[myRole] or THEME.Text
 hudRole.TextSize = 11
 hudRole.TextXAlignment = Enum.TextXAlignment.Right
@@ -1454,9 +1480,9 @@ openBtn.Size = UDim2.new(0, 58, 0, 58)
 openBtn.Position = UDim2.new(0, 20, 0.5, -29)
 openBtn.BackgroundColor3 = THEME.AccentDim
 openBtn.BackgroundTransparency = 0.15
-openBtn.Text = "🐶"
-openBtn.Font = Enum.Font.GothamBold
-openBtn.TextSize = 28
+openBtn.Text = "M"
+openBtn.Font = Enum.Font.GothamBlack
+openBtn.TextSize = 24
 openBtn.TextColor3 = Color3.new(1,1,1)
 openBtn.BorderSizePixel = 0
 openBtn.Active = true
@@ -1501,7 +1527,7 @@ verLbl.Size = UDim2.new(1, -200, 0, 14)
 verLbl.Position = UDim2.new(0, 24, 0, 36)
 verLbl.BackgroundTransparency = 1
 verLbl.Font = Enum.Font.Gotham
-verLbl.Text = "v9.1 | chat + roles + owner + config"
+verLbl.Text = "v9.2 | chat + roles + owner + config"
 verLbl.TextColor3 = THEME.TextDim
 verLbl.TextSize = 9
 verLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -1783,10 +1809,10 @@ local function addDropdown(card, y, label, options, default, cb)
     end)
 end
 
---==================== SIDEBAR (нужен для rebuild) ====================
+--==================== SIDEBAR ====================
 local sidebarButtons = {}
 local currentTab = "combat"
-local addOwnerTab  -- forward declaration
+local addOwnerTab
 
 local function makeTab(id, icon, label)
     local btn = Instance.new("TextButton", tabBar)
@@ -1799,13 +1825,13 @@ local function makeTab(id, icon, label)
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
 
     local iL = Instance.new("TextLabel", btn)
-    iL.Size = UDim2.new(0, 20, 1, 0)
-    iL.Position = UDim2.new(0, 14, 0, 0)
+    iL.Size = UDim2.new(0, 26, 1, 0)
+    iL.Position = UDim2.new(0, 10, 0, 0)
     iL.BackgroundTransparency = 1
     iL.Font = Enum.Font.GothamBold
     iL.Text = icon
     iL.TextColor3 = THEME.TextDim
-    iL.TextSize = 13
+    iL.TextSize = 11
 
     local nL = Instance.new("TextLabel", btn)
     nL.Size = UDim2.new(1, -44, 1, 0)
@@ -1935,13 +1961,13 @@ function rebuildContent()
 
     elseif currentTab == "misc" then
         if not isOwner then
-            local cOwner = makeCard("👑 Owner доступ", 0)
+            local cOwner = makeCard("OWNER DOSTUP", 0)
             local btnOwner = Instance.new("TextButton", cOwner)
             btnOwner.Size = UDim2.new(1, -28, 0, 36)
             btnOwner.Position = UDim2.new(0, 14, 0, 56)
             btnOwner.BackgroundColor3 = THEME.Gold
             btnOwner.BorderSizePixel = 0
-            btnOwner.Text = "🔓 Ввести пароль Owner"
+            btnOwner.Text = "Vvesti parol Owner"
             btnOwner.Font = Enum.Font.GothamBold
             btnOwner.TextSize = 13
             btnOwner.TextColor3 = Color3.fromRGB(20, 20, 20)
@@ -1951,7 +1977,7 @@ function rebuildContent()
                     if success then
                         if addOwnerTab then addOwnerTab() end
                         if hudRole then
-                            hudRole.Text = (ROLE_ICONS[myRole] or "👤") .. " " .. myRole
+                            hudRole.Text = myRole
                             hudRole.TextColor3 = ROLE_COLORS[myRole] or THEME.Text
                         end
                         rebuildContent()
@@ -1971,7 +1997,7 @@ function rebuildContent()
         createChatUI(contentScroll)
 
     elseif currentTab == "config" then
-        local c1 = makeCard("📄 Config Manager", 1)
+        local c1 = makeCard("Config Manager", 1)
         c1.Size = UDim2.new(0, 690, 0, 500)
 
         local nameBox = Instance.new("TextBox", c1)
@@ -1980,7 +2006,7 @@ function rebuildContent()
         nameBox.BackgroundColor3 = THEME.Background
         nameBox.BackgroundTransparency = 0.4
         nameBox.Font = Enum.Font.Gotham
-        nameBox.PlaceholderText = "Имя нового конфига..."
+        nameBox.PlaceholderText = "Imya novogo konfiga..."
         nameBox.PlaceholderColor3 = THEME.TextDim
         nameBox.Text = ""
         nameBox.TextColor3 = THEME.Text
@@ -1996,7 +2022,7 @@ function rebuildContent()
         saveBtn.Position = UDim2.new(0, 14, 0, 100)
         saveBtn.BackgroundColor3 = THEME.AccentDim
         saveBtn.BackgroundTransparency = 0.1
-        saveBtn.Text = "💾  СОХРАНИТЬ"
+        saveBtn.Text = "SOHRANIT"
         saveBtn.Font = Enum.Font.GothamBold
         saveBtn.TextSize = 11
         saveBtn.TextColor3 = Color3.new(1,1,1)
@@ -2010,7 +2036,7 @@ function rebuildContent()
         keyBtn.Position = UDim2.new(0, 224, 0, 100)
         keyBtn.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
         keyBtn.BackgroundTransparency = 0.1
-        keyBtn.Text = "🔐  СОЗДАТЬ КЛЮЧ"
+        keyBtn.Text = "SOZDAT KLYUCH"
         keyBtn.Font = Enum.Font.GothamBold
         keyBtn.TextSize = 11
         keyBtn.TextColor3 = Color3.new(1,1,1)
@@ -2035,7 +2061,7 @@ function rebuildContent()
         actHdr.Position = UDim2.new(0, 14, 0, 172)
         actHdr.BackgroundTransparency = 1
         actHdr.Font = Enum.Font.GothamBold
-        actHdr.Text = "🔓  АКТИВАЦИЯ КЛЮЧА"
+        actHdr.Text = "AKTIVACIYA KLYUCHA"
         actHdr.TextColor3 = THEME.TextFaint
         actHdr.TextSize = 10
         actHdr.TextXAlignment = Enum.TextXAlignment.Left
@@ -2047,7 +2073,7 @@ function rebuildContent()
         keyInput.BackgroundColor3 = THEME.Background
         keyInput.BackgroundTransparency = 0.4
         keyInput.Font = Enum.Font.Gotham
-        keyInput.PlaceholderText = "Вставь ключ (MOPS-...)"
+        keyInput.PlaceholderText = "Vstav klyuch (MOPS-...)"
         keyInput.PlaceholderColor3 = THEME.TextDim
         keyInput.Text = ""
         keyInput.TextColor3 = THEME.Text
@@ -2063,7 +2089,7 @@ function rebuildContent()
         activateBtn.Position = UDim2.new(1, -214, 0, 196)
         activateBtn.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
         activateBtn.BackgroundTransparency = 0.1
-        activateBtn.Text = "📥  АКТИВИРОВАТЬ"
+        activateBtn.Text = "AKTIVIROVAT"
         activateBtn.Font = Enum.Font.GothamBold
         activateBtn.TextSize = 11
         activateBtn.TextColor3 = Color3.new(1,1,1)
@@ -2077,7 +2103,7 @@ function rebuildContent()
         savedHdr.Position = UDim2.new(0, 14, 0, 240)
         savedHdr.BackgroundTransparency = 1
         savedHdr.Font = Enum.Font.GothamBold
-        savedHdr.Text = "📁  СОХРАНЁННЫЕ КОНФИГИ"
+        savedHdr.Text = "SOHRANENNYE KONFIGI"
         savedHdr.TextColor3 = THEME.TextFaint
         savedHdr.TextSize = 10
         savedHdr.TextXAlignment = Enum.TextXAlignment.Left
@@ -2120,7 +2146,7 @@ function rebuildContent()
                 empty.Size = UDim2.new(1, 0, 0, 40)
                 empty.BackgroundTransparency = 1
                 empty.Font = Enum.Font.Gotham
-                empty.Text = hasFileAPI() and "— нет конфигов —" or "⚠ Executor без файлов (только ключи)"
+                empty.Text = hasFileAPI() and "- net konfigov -" or "Executor bez failov"
                 empty.TextColor3 = THEME.TextFaint
                 empty.TextSize = 11
                 return
@@ -2138,7 +2164,7 @@ function rebuildContent()
                 nameLbl.Position = UDim2.new(0, 12, 0, 0)
                 nameLbl.BackgroundTransparency = 1
                 nameLbl.Font = Enum.Font.GothamMedium
-                nameLbl.Text = "📄  " .. name
+                nameLbl.Text = name
                 nameLbl.TextColor3 = THEME.Text
                 nameLbl.TextSize = 12
                 nameLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -2147,9 +2173,9 @@ function rebuildContent()
                 rLoad.Size = UDim2.new(0, 40, 0, 24)
                 rLoad.Position = UDim2.new(1, -225, 0.5, -12)
                 rLoad.BackgroundColor3 = THEME.AccentDim
-                rLoad.Text = "📂"
+                rLoad.Text = "LOAD"
                 rLoad.Font = Enum.Font.GothamBold
-                rLoad.TextSize = 12
+                rLoad.TextSize = 10
                 rLoad.TextColor3 = Color3.new(1,1,1)
                 rLoad.BorderSizePixel = 0
                 rLoad.AutoButtonColor = false
@@ -2159,9 +2185,9 @@ function rebuildContent()
                 rKey.Size = UDim2.new(0, 40, 0, 24)
                 rKey.Position = UDim2.new(1, -180, 0.5, -12)
                 rKey.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
-                rKey.Text = "🔐"
+                rKey.Text = "KEY"
                 rKey.Font = Enum.Font.GothamBold
-                rKey.TextSize = 12
+                rKey.TextSize = 10
                 rKey.TextColor3 = Color3.new(1,1,1)
                 rKey.BorderSizePixel = 0
                 rKey.AutoButtonColor = false
@@ -2171,9 +2197,9 @@ function rebuildContent()
                 rRename.Size = UDim2.new(0, 40, 0, 24)
                 rRename.Position = UDim2.new(1, -135, 0.5, -12)
                 rRename.BackgroundColor3 = Color3.fromRGB(80, 130, 200)
-                rRename.Text = "✏"
+                rRename.Text = "RNM"
                 rRename.Font = Enum.Font.GothamBold
-                rRename.TextSize = 12
+                rRename.TextSize = 10
                 rRename.TextColor3 = Color3.new(1,1,1)
                 rRename.BorderSizePixel = 0
                 rRename.AutoButtonColor = false
@@ -2184,9 +2210,9 @@ function rebuildContent()
                 rDelete.Position = UDim2.new(1, -90, 0.5, -12)
                 rDelete.BackgroundColor3 = THEME.Danger
                 rDelete.BackgroundTransparency = 0.3
-                rDelete.Text = "🗑"
+                rDelete.Text = "DEL"
                 rDelete.Font = Enum.Font.GothamBold
-                rDelete.TextSize = 12
+                rDelete.TextSize = 10
                 rDelete.TextColor3 = Color3.new(1,1,1)
                 rDelete.BorderSizePixel = 0
                 rDelete.AutoButtonColor = false
@@ -2196,11 +2222,11 @@ function rebuildContent()
                     local ok, err = loadLocalConfig(name)
                     if ok then
                         applyAllFromConfig()
-                        statusLbl.Text = "✅ Загружен: " .. name
+                        statusLbl.Text = "Zagruzhen: " .. name
                         statusLbl.TextColor3 = THEME.Success
                         rebuildContent()
                     else
-                        statusLbl.Text = "❌ " .. tostring(err)
+                        statusLbl.Text = tostring(err)
                         statusLbl.TextColor3 = THEME.Danger
                     end
                 end)
@@ -2208,14 +2234,14 @@ function rebuildContent()
                 rKey.MouseButton1Click:Connect(function()
                     local ok, err = loadLocalConfig(name)
                     if not ok then
-                        statusLbl.Text = "❌ " .. tostring(err)
+                        statusLbl.Text = tostring(err)
                         statusLbl.TextColor3 = THEME.Danger
                         return
                     end
                     local key = generateKey()
                     keyInput.Text = key
                     local copied = copyToClipboard(key)
-                    statusLbl.Text = copied and ("✅ Ключ скопирован (" .. #key .. " симв.)") or "🔐 Ключ сгенерирован"
+                    statusLbl.Text = copied and ("Klyuch skopirovan (" .. #key .. ")") or "Klyuch sgenerirovan"
                     statusLbl.TextColor3 = THEME.Success
                 end)
 
@@ -2226,7 +2252,7 @@ function rebuildContent()
 
                 rDelete.MouseButton1Click:Connect(function()
                     deleteLocalConfig(name)
-                    statusLbl.Text = "🗑 Удалён: " .. name
+                    statusLbl.Text = "Udalen: " .. name
                     statusLbl.TextColor3 = THEME.Danger
                     refreshList()
                 end)
@@ -2236,17 +2262,17 @@ function rebuildContent()
         saveBtn.MouseButton1Click:Connect(function()
             local name = nameBox.Text
             if name == "" then
-                statusLbl.Text = "❌ Введи имя конфига"
+                statusLbl.Text = "Vvedi imya konfiga"
                 statusLbl.TextColor3 = THEME.Danger
                 return
             end
             local ok, err = saveLocalConfig(name)
             if ok then
-                statusLbl.Text = "✅ Сохранён: " .. name
+                statusLbl.Text = "Sohranen: " .. name
                 statusLbl.TextColor3 = THEME.Success
                 refreshList()
             else
-                statusLbl.Text = "❌ " .. tostring(err)
+                statusLbl.Text = tostring(err)
                 statusLbl.TextColor3 = THEME.Danger
             end
         end)
@@ -2255,25 +2281,25 @@ function rebuildContent()
             local key = generateKey()
             keyInput.Text = key
             local copied = copyToClipboard(key)
-            statusLbl.Text = copied and ("🔐 Ключ скопирован! (" .. #key .. " симв.)") or "🔐 Ключ сгенерирован"
+            statusLbl.Text = copied and ("Klyuch skopirovan! (" .. #key .. ")") or "Klyuch sgenerirovan"
             statusLbl.TextColor3 = THEME.Success
         end)
 
         activateBtn.MouseButton1Click:Connect(function()
             local key = keyInput.Text
             if key == "" then
-                statusLbl.Text = "❌ Вставь ключ"
+                statusLbl.Text = "Vstav klyuch"
                 statusLbl.TextColor3 = THEME.Danger
                 return
             end
             local ok, result = activateKey(key)
             if ok then
                 applyAllFromConfig()
-                statusLbl.Text = "✅ Активирован! Настроек: " .. tostring(result)
+                statusLbl.Text = "Aktivirovan! Nastroek: " .. tostring(result)
                 statusLbl.TextColor3 = THEME.Success
                 rebuildContent()
             else
-                statusLbl.Text = "❌ " .. tostring(result)
+                statusLbl.Text = tostring(result)
                 statusLbl.TextColor3 = THEME.Danger
             end
         end)
@@ -2282,20 +2308,20 @@ function rebuildContent()
 
     elseif currentTab == "owner" then
         if not isOwner then
-            local c = makeCard("Нет доступа", 1)
+            local c = makeCard("Net dostupa", 1)
             local lbl = Instance.new("TextLabel", c)
             lbl.Size = UDim2.new(1, -28, 0, 60)
             lbl.Position = UDim2.new(0, 14, 0, 56)
             lbl.BackgroundTransparency = 1
             lbl.Font = Enum.Font.Gotham
-            lbl.Text = "Только Owner может видеть эту вкладку"
+            lbl.Text = "Tolko Owner vidit etu vkladku"
             lbl.TextColor3 = THEME.Danger
             lbl.TextSize = 12
             lbl.TextWrapped = true
             return
         end
 
-        local c1 = makeCard("👑 Выдать Premium", 1)
+        local c1 = makeCard("Vydat Premium", 1)
         c1.Size = UDim2.new(0, 330, 0, 340)
 
         local playersScroll = Instance.new("ScrollingFrame", c1)
@@ -2334,7 +2360,7 @@ function rebuildContent()
                     nL.Position = UDim2.new(0, 10, 0, 0)
                     nL.BackgroundTransparency = 1
                     nL.Font = Enum.Font.GothamMedium
-                    nL.Text = plr.Name .. (plr == LocalPlayer and " (ты)" or "")
+                    nL.Text = plr.Name .. (plr == LocalPlayer and " (ty)" or "")
                     nL.TextColor3 = THEME.Text
                     nL.TextSize = 11
                     nL.TextXAlignment = Enum.TextXAlignment.Left
@@ -2349,31 +2375,31 @@ function rebuildContent()
                     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
 
                     if currentRole == "Premium" then
-                        btn.Text = "💎 Уже Premium"
+                        btn.Text = "Uzhe Premium"
                         btn.BackgroundColor3 = Color3.fromRGB(80, 50, 130)
                         btn.TextColor3 = Color3.fromRGB(220, 200, 255)
                     elseif currentRole == "Mops" then
-                        btn.Text = "🐶 Уже Mops"
+                        btn.Text = "Uzhe Mops"
                         btn.BackgroundColor3 = Color3.fromRGB(130, 50, 100)
                         btn.TextColor3 = Color3.fromRGB(255, 200, 240)
                     elseif currentRole == "Owner" then
-                        btn.Text = "👑 Owner"
+                        btn.Text = "Owner"
                         btn.BackgroundColor3 = Color3.fromRGB(130, 100, 20)
                         btn.TextColor3 = Color3.fromRGB(255, 220, 100)
                     else
-                        btn.Text = "🎁 Выдать 💎"
+                        btn.Text = "Vydat Premium"
                         btn.BackgroundColor3 = THEME.Success
                         btn.TextColor3 = Color3.fromRGB(20, 20, 20)
                         btn.MouseButton1Click:Connect(function()
                             local ok = grantRoleCloud(plr.Name, "Premium")
                             if ok then
-                                btn.Text = "💎 Уже Premium"
+                                btn.Text = "Uzhe Premium"
                                 btn.BackgroundColor3 = Color3.fromRGB(80, 50, 130)
                                 btn.TextColor3 = Color3.fromRGB(220, 200, 255)
                                 pcall(function()
                                     game:GetService("StarterGui"):SetCore("SendNotification", {
                                         Title = "MOPS HUB",
-                                        Text = "💎 Premium выдан: " .. plr.Name,
+                                        Text = "Premium vydan: " .. plr.Name,
                                         Duration = 3,
                                     })
                                 end)
@@ -2388,7 +2414,7 @@ function rebuildContent()
         Players.PlayerAdded:Connect(function() task.wait(0.5) refreshPlayers() end)
         Players.PlayerRemoving:Connect(function() task.wait(0.5) refreshPlayers() end)
 
-        local c2 = makeCard("👥 Играют со скриптом", 2)
+        local c2 = makeCard("Igrayut so skriptom", 2)
         c2.Size = UDim2.new(0, 330, 0, 340)
 
         local activeScroll = Instance.new("ScrollingFrame", c2)
@@ -2424,7 +2450,7 @@ function rebuildContent()
                     Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
 
                     local rl = type(info) == "table" and info.role or "User"
-                    local icon = ROLE_ICONS[rl] or "👤"
+                    local icon = ROLE_EMOJI[rl] or "[USER]"
 
                     local lbl = Instance.new("TextLabel", row)
                     lbl.Size = UDim2.new(1, -10, 1, 0)
@@ -2448,13 +2474,13 @@ function rebuildContent()
         end)
 
     elseif currentTab == "main" then
-        local c1 = makeCard("Информация", 1)
+        local c1 = makeCard("Informaciya", 1)
         local info = Instance.new("TextLabel", c1)
         info.Size = UDim2.new(1, -28, 0, 140)
         info.Position = UDim2.new(0, 14, 0, 56)
         info.BackgroundTransparency = 1
         info.Font = Enum.Font.Gotham
-        info.Text = "Mops Hub v9.1\nMonkey Evolution Client\n\nRIGHT SHIFT — открыть меню\n🐶 — кнопка слева\n\nРоли: 👤 Free | 💎 Premium | 🐶 Mops | 👑 Owner\n\n🔐 Owner: ввести пароль в Misc"
+        info.Text = "Mops Hub v9.2\nMonkey Evolution Client\n\nRIGHT SHIFT - otkryt menu\nM - knopka sleva\n\nRoli: FREE | PREMIUM | MOPS | OWNER\n\nOwner: vvesti parol v Misc"
         info.TextColor3 = THEME.TextDim
         info.TextSize = 11
         info.TextWrapped = true
@@ -2463,20 +2489,19 @@ function rebuildContent()
     end
 end
 
---==================== СОЗДАНИЕ ВКЛАДОК ====================
 makeTab("main", "M", "Main")
 makeTab("combat", "C", "Combat")
-makeTab("movement", "M", "Movement")
+makeTab("movement", "MV", "Movement")
 makeTab("render", "R", "Render")
-makeTab("misc", "M", "Misc")
-makeTab("chat", "💬", "Chat")
-makeTab("config", "📄", "Config")
+makeTab("misc", "MI", "Misc")
+makeTab("chat", "CH", "Chat")
+makeTab("config", "CF", "Config")
 
 addOwnerTab = function()
     if not isOwner then return end
     if sidebarButtons["owner"] then return end
-    makeTab("owner", "👑", "Owner")
-    print("[MopsHub] Вкладка Owner добавлена")
+    makeTab("owner", "OW", "Owner")
+    print("[MopsHub] Vkladka Owner dobavlena")
 end
 
 sidebarButtons["combat"].button.BackgroundColor3 = THEME.AccentDim
@@ -2485,7 +2510,7 @@ sidebarButtons["combat"].icon.TextColor3 = Color3.new(1,1,1)
 sidebarButtons["combat"].label.TextColor3 = Color3.new(1,1,1)
 rebuildContent()
 
---==================== ИНИЦИАЛИЗАЦИЯ ====================
+--==================== INIT ====================
 task.spawn(function()
     task.wait(0.5)
 
@@ -2496,13 +2521,13 @@ task.spawn(function()
         myRole = "Owner"
         addOwnerTab()
         if hudRole then
-            hudRole.Text = ROLE_ICONS[myRole] .. " " .. myRole
+            hudRole.Text = myRole
             hudRole.TextColor3 = ROLE_COLORS[myRole]
         end
     elseif savedRole then
         myRole = savedRole
         if hudRole then
-            hudRole.Text = (ROLE_ICONS[myRole] or "👤") .. " " .. myRole
+            hudRole.Text = myRole
             hudRole.TextColor3 = ROLE_COLORS[myRole] or THEME.Text
         end
     else
@@ -2514,7 +2539,7 @@ task.spawn(function()
                 addOwnerTab()
             end
             if hudRole then
-                hudRole.Text = (ROLE_ICONS[myRole] or "👤") .. " " .. myRole
+                hudRole.Text = myRole
                 hudRole.TextColor3 = ROLE_COLORS[myRole] or THEME.Text
             end
         end)
@@ -2538,4 +2563,4 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("[Mops Hub v9.1] Загружен. RIGHT SHIFT — открыть.")
+print("[Mops Hub v9.2] Zagruzhen. RIGHT SHIFT - otkryt.")
